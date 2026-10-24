@@ -1,0 +1,14 @@
+# Python
+backend/venv/
+__pycache__/
+.pytest_cache/
+backend/subway.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# Secrets (Firebase keys)
+.env
+
+.DS_Store
