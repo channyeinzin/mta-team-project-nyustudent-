@@ -4,6 +4,25 @@ A website for live NYC subway information: a live map of every line, station and
 
 **Stack:** Python + Flask + SQLite (backend) · React + Vite + Tailwind CSS + Leaflet (frontend) · Firebase Authentication (login) · MTA real-time feeds (free, no API key)
 
+## Team
+
+| Role | Name | GitHub |
+|---|---|---|
+| Person 1: MTA API & Backend | | |
+| Person 2: Database & Project Setup | | |
+| Person 3: Frontend & Dashboard | | |
+| Person 4: Firebase & Transit Features | | |
+| Person 5: Integration & Presentation | | |
+
+## How to contribute
+
+1. Create a branch: `git checkout -b your-name/what-you-change`
+2. Make your change, then `git add .` and `git commit -m "Short description"`
+3. Push: `git push -u origin your-name/what-you-change`
+4. Open a Pull Request on GitHub, and Person 5 reviews and merges it
+
+Never commit `.env` files or any keys or passwords.
+
 ## Setup
 
 You need **Python 3.10+** and **Node.js 20+**.
