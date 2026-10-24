@@ -138,3 +138,70 @@ def test_map_trains_filters_by_route(client, monkeypatch):
     assert calls == [["L", "6"]]
     assert data["features"][0]["geometry"]["coordinates"] == [-74.0025, 40.7398]
     assert data["features"][0]["properties"]["color"] == "#7C858C"
+
+
+# --- trip planner ---
+
+def fake_trip(route, stops, start_time):
+    """A pretend live train: stops is a list of station ids, 2 minutes apart."""
+    order = [(station, start_time + 120 * i) for i, station in enumerate(stops)]
+    return {
+        "route": route,
+        "direction": "Northbound",
+        "order": order,
+        "stops": {station: (i, t) for i, (station, t) in enumerate(order)},
+    }
+
+
+def test_plan_trip_direct_and_transfer(monkeypatch):
+    import time as time_module
+
+    import mta
+
+    now = time_module.time()
+    monkeypatch.setattr(mta, "_live_trips", lambda: [
+        fake_trip("L", ["A", "B", "C"], now + 60),        # direct A -> C
+        fake_trip("L", ["A", "B"], now + 30),             # only to B...
+        fake_trip("6", ["B", "D", "C"], now + 400),       # ...then the 6 from B to C
+        fake_trip("4", ["C", "A"], now + 60),             # wrong direction
+    ])
+    names = {s: s for s in "ABCD"}
+
+    options = mta.plan_trip("A", "C", {}, names)
+
+    assert [l["route"] for l in options[0]["legs"]] == ["L"]  # direct arrives first
+    assert any([l["route"] for l in o["legs"]] == ["L", "6"] for o in options)
+    assert all(o["legs"][0]["route"] != "4" for o in options)
+
+
+def test_plan_trip_skips_too_short_transfers(monkeypatch):
+    import time as time_module
+
+    import mta
+
+    now = time_module.time()
+    monkeypatch.setattr(mta, "_live_trips", lambda: [
+        fake_trip("L", ["A", "B"], now + 30),   # reaches B at now+150
+        fake_trip("6", ["B", "C"], now + 200),  # leaves B only 50 s later: too tight
+    ])
+
+    assert mta.plan_trip("A", "C", {}, {}) == []
+
+
+def test_trip_endpoint(client, monkeypatch):
+    test_client, app_module = client
+    leg = {"route": "L", "direction": "Northbound", "toward": "8 Av", "from": "14 St-Union Sq",
+           "to": "8 Av", "depart_time": 0, "arrive_time": 120}
+    monkeypatch.setattr(app_module.mta, "plan_trip", lambda *args: [{"legs": [leg], "transfers": 0}])
+
+    data = test_client.get("/api/trip?from=L03&to=L01").get_json()
+
+    assert data["from"]["id"] == "L03"
+    assert data["options"][0]["legs"][0]["color"] == "#7C858C"
+
+
+def test_trip_endpoint_errors(client):
+    test_client, _ = client
+    assert test_client.get("/api/trip?from=L03").status_code == 400
+    assert test_client.get("/api/trip?from=L03&to=L03").status_code == 400
+    assert test_client.get("/api/trip?from=L03&to=NOPE").status_code == 404

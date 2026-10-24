@@ -9,6 +9,7 @@ times a year. We read four files from it:
   trips.txt       every scheduled trip and which line it belongs to
   stop_times.txt  every stop of every trip (used to work out which lines stop where)
   shapes.txt      the path of the tracks, for drawing lines on the map
+  transfers.txt   where you can walk between stations to change lines
 """
 
 import csv
@@ -34,6 +35,7 @@ def main():
     conn.execute("DELETE FROM routes")
     conn.execute("DELETE FROM stations")
     conn.execute("DELETE FROM shapes")
+    conn.execute("DELETE FROM transfers")
 
     # --- routes ---
     with zip_file.open("routes.txt") as f:
@@ -83,6 +85,14 @@ def main():
                 (row["stop_id"], row["stop_name"], float(row["stop_lat"]), float(row["stop_lon"]), " ".join(routes)),
             )
             count += 1
+
+    # --- transfers: where you can change lines, and how long the walk is ---
+    with zip_file.open("transfers.txt") as f:
+        for row in csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig")):
+            conn.execute(
+                "INSERT INTO transfers VALUES (?, ?, ?)",
+                (row["from_stop_id"], row["to_stop_id"], int(row["min_transfer_time"] or 0)),
+            )
 
     # --- track shapes for the map ---
     # shapes.txt is a list of points: (shape id, point number, lat, lon).

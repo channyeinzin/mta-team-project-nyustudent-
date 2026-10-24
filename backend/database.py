@@ -3,6 +3,7 @@
 Tables:
   routes    one row per subway line  (id, name, color, ...)
   stations  one row per station      (id, name, lat, lon, routes)
+  transfers where you can walk between stations to change lines (from_id, to_id, seconds)
   shapes    one row per track path   (id, route_id, coordinates) — for the map
 
 The data is filled in by import_data.py. app.py reads it with the helper
@@ -31,6 +32,12 @@ CREATE TABLE IF NOT EXISTS stations (
     lat     REAL NOT NULL,
     lon     REAL NOT NULL,
     routes  TEXT NOT NULL           -- lines that stop here, space separated: "L"
+);
+
+CREATE TABLE IF NOT EXISTS transfers (
+    from_id  TEXT NOT NULL,         -- "127" (Times Sq, 1/2/3)
+    to_id    TEXT NOT NULL,         -- "R16" (Times Sq, N/Q/R/W)
+    seconds  INTEGER NOT NULL       -- how long the walk takes
 );
 
 CREATE TABLE IF NOT EXISTS shapes (
@@ -72,6 +79,16 @@ def get_route_shapes():
     for row in rows:
         shapes.setdefault(row["route_id"], []).append(json.loads(row["coordinates"]))
     return shapes
+
+
+def get_transfers():
+    """{station id: [(station id you can walk to, seconds), ...]}"""
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM transfers").fetchall()
+    transfers = {}
+    for row in rows:
+        transfers.setdefault(row["from_id"], []).append((row["to_id"], row["seconds"]))
+    return transfers
 
 
 def get_station(station_id):

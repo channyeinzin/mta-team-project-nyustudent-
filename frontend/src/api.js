@@ -24,6 +24,9 @@ export const searchStations = (query) =>
 export const getNearbyStations = (lat, lon) =>
   getJson(`/api/stations/nearby?lat=${lat}&lon=${lon}`);
 
+export const planTrip = (fromId, toId) =>
+  getJson(`/api/trip?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+
 // Map data (GeoJSON)
 export const getSubwayRoutes = () => getJson("/api/subway/routes");
 

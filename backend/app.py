@@ -8,6 +8,7 @@ Endpoints (all return JSON):
   GET /api/arrivals?station=L03            next trains at one station
   GET /api/stations?q=union                search stations by name
   GET /api/stations/nearby?lat=..&lon=..   closest stations to a point
+  GET /api/trip?from=L03&to=127            next trips between two stations
 
 For the map (GeoJSON):
   GET /api/subway/routes                   every line's track
@@ -92,6 +93,31 @@ def nearby():
     except (KeyError, ValueError):
         return jsonify({"error": "Add lat and lon, e.g. /api/stations/nearby?lat=40.73&lon=-73.99"}), 400
     return jsonify({"stations": database.nearby_stations(lat, lon)})
+
+
+@app.get("/api/trip")
+def trip():
+    from_id = request.args.get("from")
+    to_id = request.args.get("to")
+    if not from_id or not to_id:
+        return jsonify({"error": "Add a start and a destination, e.g. /api/trip?from=L03&to=127"}), 400
+    start, end = database.get_station(from_id), database.get_station(to_id)
+    if not start or not end:
+        return jsonify({"error": "Unknown station"}), 404
+    if from_id == to_id:
+        return jsonify({"error": "Start and destination are the same station"}), 400
+
+    transfers = database.get_transfers()
+    if any(other == to_id for other, _ in transfers.get(from_id, [])):
+        # e.g. Union Sq L platform -> Union Sq 4/5/6 platform: no train needed
+        return jsonify({"updated_at": int(time.time()), "from": start, "to": end, "options": [], "walk": True})
+
+    options = mta.plan_trip(from_id, to_id, transfers, database.get_station_names())
+    for option in options:
+        for leg in option["legs"]:
+            leg.update(with_colors(leg["route"]))
+
+    return jsonify({"updated_at": int(time.time()), "from": start, "to": end, "options": options})
 
 
 # --- map data, in GeoJSON (the standard format map libraries understand) ---

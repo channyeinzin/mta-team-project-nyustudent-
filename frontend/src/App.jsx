@@ -11,6 +11,7 @@ import Favorites from "./components/Favorites.jsx";
 import ArrivalCards from "./components/ArrivalCards.jsx";
 import StatusDashboard from "./components/StatusDashboard.jsx";
 import SubwayMap from "./components/SubwayMap.jsx";
+import TripPlanner from "./components/TripPlanner.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);           // the logged-in Firebase user
@@ -49,6 +50,7 @@ export default function App() {
 
         <div className="space-y-4">
           <StationSearch onSelect={setStation} routeColors={routeColors} />
+          <TripPlanner routeColors={routeColors} />
 
           {station ? (
             <ArrivalCards

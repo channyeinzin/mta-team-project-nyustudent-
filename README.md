@@ -1,6 +1,6 @@
 # NYC Subway Tracker
 
-A website for live NYC subway information: a live map of every line, station and train, service status for every line, real-time train arrivals at any station, station search (by name or "near me"), and login with saved favorite stations.
+A website for live NYC subway information: a live map of every line, station and train, service status for every line, real-time train arrivals at any station, station search (by name or "near me"), a trip planner (start → destination, with up to one transfer), and login with saved favorite stations.
 
 **Stack:** Python + Flask + SQLite (backend) · React + Vite + Tailwind CSS + Leaflet (frontend) · Firebase Authentication (login) · MTA real-time feeds (free, no API key)
 
@@ -60,11 +60,23 @@ All endpoints return JSON. Errors look like `{ "error": "message" }` with status
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/stations?q=union` | Stations whose name matches |
 | `GET /api/stations/nearby?lat=40.73&lon=-73.99` | 5 closest stations |
+| `GET /api/trip?from=L08&to=A27` | Next trips between two stations: direct or one transfer, soonest arrival first |
 | `GET /api/subway/routes` | Every line's track, GeoJSON (cached 24h) |
 | `GET /api/subway/stops` | Every station, GeoJSON (cached 24h) |
 | `GET /api/subway/trains?routes=1,2,3` | Live trains, GeoJSON; leave out `routes` for all lines |
 
 On the map, each train is drawn at its **next station**, not between stations, to keep the code simple.
+
+<details>
+<summary>How the trip planner works</summary>
+
+It uses the live train data, not the timetable:
+1. **Direct:** find trains that stop at the start and *later* at the destination.
+2. **One transfer:** ride train 1 to any later station, walk to a connected platform if needed (walk times come from MTA's `transfers.txt`), and catch a train 2 that leaves after you get there and goes to the destination.
+3. Sort by arrival time. Show the next 3 trains for each direct line and the best trip for each transfer combination.
+
+Limits: at most one transfer, and only trains already in the live feed (about the next 30–60 minutes).
+</details>
 
 <details>
 <summary>Example responses</summary>
@@ -123,6 +135,7 @@ frontend/src/
   components/RouteBullet.jsx       Person 3  colored line symbols
   api.js                           Person 3  calls to the backend
   firebase.js                      Person 4  Firebase setup
+  components/TripPlanner.jsx       Person 4  trip planner (from / to / 📍)
   components/Login.jsx             Person 4  sign up / log in / log out
   useFavorites.js                  Person 4  saving favorite stations
   components/Favorites.jsx         Person 4  favorites list

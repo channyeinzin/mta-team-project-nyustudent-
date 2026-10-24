@@ -212,3 +212,135 @@ def get_status(route_ids):
                 result[route]["status"] = status
 
     return result
+
+
+# ---------------------------------------------------------------------------
+# Trip planner
+# ---------------------------------------------------------------------------
+
+DEFAULT_TRANSFER_SECONDS = 180  # 3 minutes to change trains if the MTA doesn't say
+
+
+def _live_trips():
+    """Every running train as a simple dict:
+    {"route": "L", "direction": "Northbound", "stops": {station id: (position, time)}, "order": [...]}"""
+    now = time.time()
+    trips = []
+    for feed in _load_feeds():
+        for entity in feed.entity:
+            if not entity.HasField("trip_update"):
+                continue
+            trip = entity.trip_update
+            order = []  # [(station id, time), ...] in the order the train visits them
+            for stop in trip.stop_time_update:
+                t = stop.arrival.time or stop.departure.time
+                if t >= now:
+                    order.append((stop.stop_id[:-1], t))
+            if len(order) < 2:
+                continue
+            trips.append({
+                "route": trip.trip.route_id,
+                "direction": "Northbound" if trip.stop_time_update[0].stop_id.endswith("N") else "Southbound",
+                "order": order,
+                # station id -> (position in the trip, time the train gets there)
+                "stops": {station: (i, t) for i, (station, t) in enumerate(order)},
+            })
+    return trips
+
+
+def _walkable(station_id, transfers):
+    """Stations you can walk to from here (including here), with the walk time.
+    For example, Times Sq 1/2/3 ("127") connects to Times Sq N/Q/R/W ("R16")."""
+    options = {station_id: 0}
+    for other, seconds in transfers.get(station_id, []):
+        if other != station_id:
+            options[other] = seconds
+    return options
+
+
+def plan_trip(from_id, to_id, transfers, stop_names, max_options=5):
+    """The next trips from one station to another: direct trains, or one transfer.
+
+    How it works:
+      1. Take every live train and the stations it will still visit.
+      2. Direct: a train that stops at the start and LATER at the destination.
+      3. One transfer: ride train 1 to some station, walk to another platform
+         (if needed), and catch a later train 2 that goes to the destination.
+    We return the options that arrive soonest.
+    """
+    now = time.time()
+    trips = _live_trips()
+    starts = _walkable(from_id, transfers)  # where you can board
+    ends = _walkable(to_id, transfers)      # where you can get off
+
+    # Trains that reach the destination: trip index -> (end station, position, time)
+    reaches_end = {}
+    for n, trip in enumerate(trips):
+        for end in ends:
+            if end in trip["stops"]:
+                pos, t = trip["stops"][end]
+                if n not in reaches_end or t < reaches_end[n][2]:
+                    reaches_end[n] = (end, pos, t)
+
+    def leg(trip, board, board_time, alight, alight_time):
+        last_stop = trip["order"][-1][0]
+        return {
+            "route": trip["route"],
+            "direction": trip["direction"],
+            "toward": stop_names.get(last_stop, last_stop),
+            "from": stop_names.get(board, board),
+            "to": stop_names.get(alight, alight),
+            "depart_time": board_time,
+            "arrive_time": alight_time,
+        }
+
+    options = []
+    for n, trip in enumerate(trips):
+        for start, walk in starts.items():
+            if start not in trip["stops"]:
+                continue
+            start_pos, depart = trip["stops"][start]
+            if depart < now + walk:
+                continue  # you can't make it to this platform in time
+
+            # 1. Direct train
+            if n in reaches_end and reaches_end[n][1] > start_pos:
+                end, _, arrive = reaches_end[n]
+                options.append([leg(trip, start, depart, end, arrive)])
+                continue
+
+            # 2. One transfer: try getting off at each later station
+            for station, t1 in trip["order"][start_pos + 1:]:
+                for transfer_station, seconds in _walkable(station, transfers).items():
+                    seconds = seconds or DEFAULT_TRANSFER_SECONDS
+                    for m, (end, end_pos, arrive) in reaches_end.items():
+                        other = trips[m]
+                        if other["route"] == trip["route"] or transfer_station not in other["stops"]:
+                            continue
+                        pos2, t2 = other["stops"][transfer_station]
+                        if pos2 < end_pos and t2 >= t1 + seconds:
+                            options.append([
+                                leg(trip, start, depart, station, t1),
+                                leg(other, transfer_station, t2, end, arrive),
+                            ])
+
+    # Soonest arrival first. Keep the next 3 trains for a direct line, but only
+    # the best trip for each transfer combination (e.g. one "L -> 6" option).
+    options.sort(key=lambda legs: (legs[-1]["arrive_time"], len(legs)))
+    best, count = [], {}
+    for legs in options:
+        lines = tuple(l["route"] for l in legs)
+        limit = 3 if len(legs) == 1 else 1
+        if count.get(lines, 0) >= limit:
+            continue
+        count[lines] = count.get(lines, 0) + 1
+        best.append({
+            "legs": legs,
+            "transfers": len(legs) - 1,
+            "depart_time": legs[0]["depart_time"],
+            "arrive_time": legs[-1]["arrive_time"],
+            "minutes": round((legs[-1]["arrive_time"] - now) / 60),
+        })
+        if len(best) == max_options:
+            break
+    return best
