@@ -1,0 +1,107 @@
+"""Backend tests — Person 5. Run from the backend folder:   pytest
+
+These tests don't need the internet: they use a tiny fake database and
+replace the MTA calls with fake data.
+"""
+
+import os
+import sqlite3
+import sys
+
+import pytest
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+import database  # noqa: E402
+
+
+@pytest.fixture
+def client(tmp_path, monkeypatch):
+    # A small database with 2 routes and 2 stations.
+    db_path = tmp_path / "test.db"
+    monkeypatch.setattr(database, "DB_PATH", str(db_path))
+    conn = sqlite3.connect(db_path)
+    database.create_tables(conn)
+    conn.execute("INSERT INTO routes VALUES ('L', 'L', '14 St-Canarsie Local', '#7C858C', '#FFFFFF')")
+    conn.execute("INSERT INTO routes VALUES ('6', '6', 'Lexington Av Local', '#009952', '#FFFFFF')")
+    conn.execute("INSERT INTO stations VALUES ('L03', '14 St-Union Sq', 40.7348, -73.9907, 'L')")
+    conn.execute("INSERT INTO stations VALUES ('L01', '8 Av', 40.7398, -74.0025, 'L')")
+    conn.commit()
+    conn.close()
+
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "ROUTES", {r["id"]: r for r in database.get_routes()})
+    return app_module.app.test_client(), app_module
+
+
+def test_status_lists_every_line(client, monkeypatch):
+    test_client, app_module = client
+    monkeypatch.setattr(
+        app_module.mta,
+        "get_status",
+        lambda routes: {r: {"status": "Good Service", "alerts": []} for r in routes},
+    )
+
+    response = test_client.get("/api/status")
+
+    assert response.status_code == 200
+    lines = response.get_json()["lines"]
+    assert {line["route"] for line in lines} == {"L", "6"}
+    assert lines[0]["color"].startswith("#")
+
+
+def test_arrivals_returns_trains_with_colors(client, monkeypatch):
+    test_client, app_module = client
+    fake_train = {"route": "L", "direction": "Northbound", "destination": "8 Av", "minutes_away": 3, "arrival_time": 0}
+    monkeypatch.setattr(app_module.mta, "get_arrivals", lambda *args: [fake_train])
+
+    response = test_client.get("/api/arrivals?station=L03")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["station"]["name"] == "14 St-Union Sq"
+    assert data["arrivals"][0]["color"] == "#7C858C"
+
+
+def test_arrivals_needs_a_station(client):
+    test_client, _ = client
+    assert test_client.get("/api/arrivals").status_code == 400
+
+
+def test_arrivals_unknown_station(client):
+    test_client, _ = client
+    response = test_client.get("/api/arrivals?station=NOPE")
+    assert response.status_code == 404
+    assert "error" in response.get_json()
+
+
+def test_mta_down_returns_json_error(client, monkeypatch):
+    test_client, app_module = client
+
+    def broken(*args):
+        raise app_module.mta.MTAError("feed down")
+
+    monkeypatch.setattr(app_module.mta, "get_arrivals", broken)
+    response = test_client.get("/api/arrivals?station=L03")
+
+    assert response.status_code == 502
+    assert "error" in response.get_json()
+
+
+def test_search_stations(client):
+    test_client, _ = client
+    stations = test_client.get("/api/stations?q=union").get_json()["stations"]
+    assert [s["id"] for s in stations] == ["L03"]
+    assert stations[0]["routes"] == ["L"]
+
+
+def test_nearby_stations_closest_first(client):
+    test_client, _ = client
+    stations = test_client.get("/api/stations/nearby?lat=40.7348&lon=-73.9907").get_json()["stations"]
+    assert stations[0]["id"] == "L03"
+    assert stations[0]["distance_miles"] < stations[1]["distance_miles"]
+
+
+def test_nearby_needs_numbers(client):
+    test_client, _ = client
+    assert test_client.get("/api/stations/nearby?lat=abc&lon=1").status_code == 400
