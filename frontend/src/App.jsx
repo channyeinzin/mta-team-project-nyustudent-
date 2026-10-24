@@ -10,6 +10,7 @@ import StationSearch from "./components/StationSearch.jsx";
 import Favorites from "./components/Favorites.jsx";
 import ArrivalCards from "./components/ArrivalCards.jsx";
 import StatusDashboard from "./components/StatusDashboard.jsx";
+import SubwayMap from "./components/SubwayMap.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);           // the logged-in Firebase user
@@ -40,8 +41,12 @@ export default function App() {
         </div>
       </header>
 
-      {/* Phone: one column. Big screen: search + arrivals on the left, status on the right. */}
+      {/* Phone: one column. Big screen: map on top, then search + arrivals on the left, status on the right. */}
       <main className="mx-auto grid max-w-6xl gap-4 p-4 lg:grid-cols-[3fr_2fr]">
+        <div className="lg:col-span-2">
+          <SubwayMap selectedStation={station} onSelectStation={setStation} />
+        </div>
+
         <div className="space-y-4">
           <StationSearch onSelect={setStation} routeColors={routeColors} />
 
@@ -53,7 +58,7 @@ export default function App() {
             />
           ) : (
             <section className="rounded-2xl bg-white p-6 text-center text-gray-500 shadow-sm">
-              Search for a station to see the next trains.
+              Search for a station, or click one on the map, to see the next trains.
             </section>
           )}
 

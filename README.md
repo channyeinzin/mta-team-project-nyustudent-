@@ -1,8 +1,8 @@
 # NYC Subway Tracker
 
-A website for live NYC subway information: service status for every line, real-time train arrivals at any station, station search (by name or "near me"), and login with saved favorite stations.
+A website for live NYC subway information: a live map of every line, station and train, service status for every line, real-time train arrivals at any station, station search (by name or "near me"), and login with saved favorite stations.
 
-**Stack:** Python + Flask + SQLite (backend) · React + Vite + Tailwind CSS (frontend) · Firebase Authentication (login) · MTA real-time feeds (free, no API key)
+**Stack:** Python + Flask + SQLite (backend) · React + Vite + Tailwind CSS + Leaflet (frontend) · Firebase Authentication (login) · MTA real-time feeds (free, no API key)
 
 ## Setup
 
@@ -60,6 +60,11 @@ All endpoints return JSON. Errors look like `{ "error": "message" }` with status
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/stations?q=union` | Stations whose name matches |
 | `GET /api/stations/nearby?lat=40.73&lon=-73.99` | 5 closest stations |
+| `GET /api/subway/routes` | Every line's track, GeoJSON (cached 24h) |
+| `GET /api/subway/stops` | Every station, GeoJSON (cached 24h) |
+| `GET /api/subway/trains?routes=1,2,3` | Live trains, GeoJSON; leave out `routes` for all lines |
+
+On the map, each train is drawn at its **next station**, not between stations, to keep the code simple.
 
 <details>
 <summary>Example responses</summary>
@@ -111,6 +116,7 @@ backend/
   import_data.py      Person 2  loads MTA station and route data into SQLite
   tests/test_api.py   Person 5  backend tests
 frontend/src/
+  components/SubwayMap.jsx         Person 3  live map (lines, stations, trains)
   components/StatusDashboard.jsx   Person 3  service status dashboard
   components/StationSearch.jsx     Person 3/4  search bar + "near me"
   components/ArrivalCards.jsx      Person 3  train arrival cards
@@ -127,4 +133,5 @@ frontend/src/
 
 - Real-time arrivals: MTA GTFS-RT feeds (`api-endpoint.mta.info`)
 - Service alerts: MTA subway alerts feed
-- Stations and routes: MTA static GTFS (`gtfs_subway.zip`)
+- Stations, routes and track shapes: MTA static GTFS (`gtfs_subway.zip`)
+- Background map: OpenStreetMap tiles

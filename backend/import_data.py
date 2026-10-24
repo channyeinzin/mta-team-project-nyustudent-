@@ -8,10 +8,12 @@ times a year. We read four files from it:
   stops.txt       every station and its location
   trips.txt       every scheduled trip and which line it belongs to
   stop_times.txt  every stop of every trip (used to work out which lines stop where)
+  shapes.txt      the path of the tracks, for drawing lines on the map
 """
 
 import csv
 import io
+import json
 import zipfile
 
 import requests
@@ -31,6 +33,7 @@ def main():
     database.create_tables(conn)
     conn.execute("DELETE FROM routes")
     conn.execute("DELETE FROM stations")
+    conn.execute("DELETE FROM shapes")
 
     # --- routes ---
     with zip_file.open("routes.txt") as f:
@@ -48,10 +51,14 @@ def main():
 
     # --- which lines stop at which station ---
     # trips.txt tells us the line of each trip...
+    # (It also tells us which track shapes each line uses, for the map.)
     route_of_trip = {}
+    route_of_shape = {}
     with zip_file.open("trips.txt") as f:
         for row in csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig")):
             route_of_trip[row["trip_id"]] = row["route_id"]
+            if row["shape_id"]:
+                route_of_shape[row["shape_id"]] = row["route_id"]
 
     # ...and stop_times.txt tells us where each trip stops.
     # Platform IDs look like "L03N", so we cut off the N/S to get the station "L03".
@@ -76,6 +83,37 @@ def main():
                 (row["stop_id"], row["stop_name"], float(row["stop_lat"]), float(row["stop_lon"]), " ".join(routes)),
             )
             count += 1
+
+    # --- track shapes for the map ---
+    # shapes.txt is a list of points: (shape id, point number, lat, lon).
+    points_of_shape = {}
+    with zip_file.open("shapes.txt") as f:
+        for row in csv.DictReader(io.TextIOWrapper(f, encoding="utf-8-sig")):
+            points_of_shape.setdefault(row["shape_id"], []).append(
+                (int(row["shape_pt_sequence"]), float(row["shape_pt_lon"]), float(row["shape_pt_lat"]))
+            )
+
+    # Each line has many shapes that mostly lie on top of each other (one per
+    # direction and service pattern). To keep the map fast we only keep a shape
+    # if it adds new track — like a branch — that the kept shapes don't cover.
+    shapes_of_route = {}
+    for shape_id, points in points_of_shape.items():
+        if shape_id in route_of_shape:  # skip shapes no trip uses
+            shapes_of_route.setdefault(route_of_shape[shape_id], []).append(sorted(points))
+
+    for route_id, shapes in shapes_of_route.items():
+        shapes.sort(key=len, reverse=True)  # longest first
+        covered = set()  # points (rounded to ~10 m) already on the map
+        for number, points in enumerate(shapes):
+            coordinates = [[round(lon, 5), round(lat, 5)] for _, lon, lat in points]  # GeoJSON: lon, lat
+            rounded = {(round(lon, 4), round(lat, 4)) for lon, lat in coordinates}
+            if len(rounded - covered) < 0.1 * len(rounded):
+                continue  # 90% of this shape is already drawn
+            covered |= rounded
+            conn.execute(
+                "INSERT INTO shapes VALUES (?, ?, ?)",
+                (f"{route_id}-{number}", route_id, json.dumps(coordinates)),
+            )
 
     conn.commit()
     conn.close()

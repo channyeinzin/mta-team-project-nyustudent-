@@ -25,6 +25,7 @@ def client(tmp_path, monkeypatch):
     conn.execute("INSERT INTO routes VALUES ('6', '6', 'Lexington Av Local', '#009952', '#FFFFFF')")
     conn.execute("INSERT INTO stations VALUES ('L03', '14 St-Union Sq', 40.7348, -73.9907, 'L')")
     conn.execute("INSERT INTO stations VALUES ('L01', '8 Av', 40.7398, -74.0025, 'L')")
+    conn.execute("INSERT INTO shapes VALUES ('L-0', 'L', '[[-74.0025, 40.7398], [-73.9907, 40.7348]]')")
     conn.commit()
     conn.close()
 
@@ -105,3 +106,35 @@ def test_nearby_stations_closest_first(client):
 def test_nearby_needs_numbers(client):
     test_client, _ = client
     assert test_client.get("/api/stations/nearby?lat=abc&lon=1").status_code == 400
+
+
+def test_map_routes_geojson(client):
+    test_client, _ = client
+    data = test_client.get("/api/subway/routes").get_json()
+    assert data["type"] == "FeatureCollection"
+    line = data["features"][0]
+    assert line["geometry"]["type"] == "MultiLineString"
+    assert line["properties"]["color"] == "#7C858C"
+
+
+def test_map_stops_geojson(client):
+    test_client, _ = client
+    features = test_client.get("/api/subway/stops").get_json()["features"]
+    assert len(features) == 2
+    assert features[0]["geometry"]["type"] == "Point"
+
+
+def test_map_trains_filters_by_route(client, monkeypatch):
+    test_client, app_module = client
+    calls = []
+
+    def fake_get_trains(stations, routes):
+        calls.append(routes)
+        return [{"route": "L", "next_stop": "8 Av", "lat": 40.7398, "lon": -74.0025}]
+
+    monkeypatch.setattr(app_module.mta, "get_trains", fake_get_trains)
+    data = test_client.get("/api/subway/trains?routes=L,6").get_json()
+
+    assert calls == [["L", "6"]]
+    assert data["features"][0]["geometry"]["coordinates"] == [-74.0025, 40.7398]
+    assert data["features"][0]["properties"]["color"] == "#7C858C"

@@ -3,11 +3,13 @@
 Tables:
   routes    one row per subway line  (id, name, color, ...)
   stations  one row per station      (id, name, lat, lon, routes)
+  shapes    one row per track path   (id, route_id, coordinates) — for the map
 
 The data is filled in by import_data.py. app.py reads it with the helper
 functions at the bottom of this file.
 """
 
+import json
 import math
 import os
 import sqlite3
@@ -30,6 +32,12 @@ CREATE TABLE IF NOT EXISTS stations (
     lon     REAL NOT NULL,
     routes  TEXT NOT NULL           -- lines that stop here, space separated: "L"
 );
+
+CREATE TABLE IF NOT EXISTS shapes (
+    id           TEXT PRIMARY KEY,  -- "L-0", "L-1", ...
+    route_id     TEXT NOT NULL,     -- "L"
+    coordinates  TEXT NOT NULL      -- the track as JSON: [[lon, lat], [lon, lat], ...]
+);
 """
 
 
@@ -48,6 +56,22 @@ def get_routes():
     with connect() as conn:
         rows = conn.execute("SELECT * FROM routes").fetchall()
     return [dict(row) for row in rows]
+
+
+def get_all_stations():
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM stations").fetchall()
+    return [station_to_dict(row) for row in rows]
+
+
+def get_route_shapes():
+    """{route id: [track, track, ...]} where each track is [[lon, lat], ...]"""
+    with connect() as conn:
+        rows = conn.execute("SELECT route_id, coordinates FROM shapes").fetchall()
+    shapes = {}
+    for row in rows:
+        shapes.setdefault(row["route_id"], []).append(json.loads(row["coordinates"]))
+    return shapes
 
 
 def get_station(station_id):

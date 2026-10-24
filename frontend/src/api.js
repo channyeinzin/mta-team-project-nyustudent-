@@ -23,3 +23,10 @@ export const searchStations = (query) =>
 
 export const getNearbyStations = (lat, lon) =>
   getJson(`/api/stations/nearby?lat=${lat}&lon=${lon}`);
+
+// Map data (GeoJSON)
+export const getSubwayRoutes = () => getJson("/api/subway/routes");
+
+export const getSubwayStops = () => getJson("/api/subway/stops");
+
+export const getSubwayTrains = () => getJson("/api/subway/trains");

@@ -8,6 +8,11 @@ Endpoints (all return JSON):
   GET /api/arrivals?station=L03            next trains at one station
   GET /api/stations?q=union                search stations by name
   GET /api/stations/nearby?lat=..&lon=..   closest stations to a point
+
+For the map (GeoJSON):
+  GET /api/subway/routes                   every line's track
+  GET /api/subway/stops                    every station
+  GET /api/subway/trains?routes=1,2,3      live trains, placed at their next stop
 """
 
 import os
@@ -19,6 +24,7 @@ import database
 import mta
 
 app = Flask(__name__)
+app.json.compact = True  # no extra spaces in JSON: smaller and faster to send
 
 if not os.path.exists(database.DB_PATH):
     raise SystemExit("No database yet. Run this first:  python import_data.py")
@@ -86,6 +92,53 @@ def nearby():
     except (KeyError, ValueError):
         return jsonify({"error": "Add lat and lon, e.g. /api/stations/nearby?lat=40.73&lon=-73.99"}), 400
     return jsonify({"stations": database.nearby_stations(lat, lon)})
+
+
+# --- map data, in GeoJSON (the standard format map libraries understand) ---
+
+def point(lon, lat, properties):
+    return {"type": "Feature", "geometry": {"type": "Point", "coordinates": [lon, lat]}, "properties": properties}
+
+
+@app.get("/api/subway/routes")
+def subway_routes():
+    features = [
+        {
+            "type": "Feature",
+            # A line can have several tracks (branches), so it's a MultiLineString.
+            "geometry": {"type": "MultiLineString", "coordinates": tracks},
+            "properties": {"route": route_id, **with_colors(route_id)},
+        }
+        for route_id, tracks in database.get_route_shapes().items()
+    ]
+    response = jsonify({"type": "FeatureCollection", "features": features})
+    response.headers["Cache-Control"] = "public, max-age=86400"  # changes rarely: cache 24h
+    return response
+
+
+@app.get("/api/subway/stops")
+def subway_stops():
+    features = [
+        point(s["lon"], s["lat"], {"id": s["id"], "name": s["name"], "routes": s["routes"]})
+        for s in database.get_all_stations()
+    ]
+    response = jsonify({"type": "FeatureCollection", "features": features})
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@app.get("/api/subway/trains")
+def subway_trains():
+    routes = request.args.get("routes")
+    routes = routes.split(",") if routes else None  # "1,2,3" -> ["1", "2", "3"]
+
+    stations_by_id = {s["id"]: s for s in database.get_all_stations()}
+    features = []
+    for train in mta.get_trains(stations_by_id, routes):
+        lat, lon = train.pop("lat"), train.pop("lon")
+        features.append(point(lon, lat, {**train, **with_colors(train["route"])}))
+
+    return jsonify({"type": "FeatureCollection", "updated_at": int(time.time()), "features": features})
 
 
 # --- error handling: always answer with JSON, never an HTML error page ---

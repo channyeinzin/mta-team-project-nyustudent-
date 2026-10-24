@@ -62,6 +62,63 @@ def _download_json(url):
     return response.json()
 
 
+def _load_feeds(routes=None):
+    """Download the feeds that cover these lines (or all feeds if routes is None)."""
+    urls = [url for url, lines in FEEDS.items() if routes is None or any(r in lines for r in routes)]
+
+    # Download the feeds at the same time instead of one after another.
+    with ThreadPoolExecutor() as pool:
+        return list(pool.map(lambda url: _cached(url, _download_trains), urls))
+
+
+# ---------------------------------------------------------------------------
+# Trains (for the map)
+# ---------------------------------------------------------------------------
+
+def get_trains(stations_by_id, routes=None):
+    """Every train that's running, placed at its next stop.
+
+    stations_by_id  {station id: station dict with lat/lon/name}
+    routes          only these lines, e.g. ["1", "2", "3"] (None = all lines)
+
+    To keep it simple, a train is drawn AT its next station instead of
+    somewhere on the track between two stations.
+    """
+    now = time.time()
+    trains = []
+
+    for feed in _load_feeds(routes):
+        for entity in feed.entity:
+            if not entity.HasField("trip_update"):
+                continue
+            trip = entity.trip_update
+            if routes and trip.trip.route_id not in routes:
+                continue
+
+            # The next stop is the first one the train hasn't reached yet.
+            upcoming = [s for s in trip.stop_time_update if (s.arrival.time or s.departure.time) >= now]
+            if not upcoming:
+                continue
+            next_stop = stations_by_id.get(upcoming[0].stop_id[:-1])
+            last_stop = stations_by_id.get(upcoming[-1].stop_id[:-1])
+            if not next_stop:
+                continue
+
+            arrival_time = upcoming[0].arrival.time or upcoming[0].departure.time
+            trains.append({
+                "trip_id": trip.trip.trip_id,
+                "route": trip.trip.route_id,
+                "direction": "Northbound" if upcoming[0].stop_id.endswith("N") else "Southbound",
+                "next_stop": next_stop["name"],
+                "destination": last_stop["name"] if last_stop else None,
+                "minutes_away": round((arrival_time - now) / 60),
+                "lat": next_stop["lat"],
+                "lon": next_stop["lon"],
+            })
+
+    return trains
+
+
 # ---------------------------------------------------------------------------
 # Arrivals
 # ---------------------------------------------------------------------------
@@ -73,12 +130,7 @@ def get_arrivals(station_id, routes, stop_names):
     routes      lines that stop there, e.g. ["L"] (so we only download those feeds)
     stop_names  {station id: name}, used to name each train's last stop
     """
-    urls = [url for url, lines in FEEDS.items() if any(r in lines for r in routes)]
-
-    # Download the feeds at the same time instead of one after another.
-    with ThreadPoolExecutor() as pool:
-        feeds = list(pool.map(lambda url: _cached(url, _download_trains), urls))
-
+    feeds = _load_feeds(routes)
     now = time.time()
     arrivals = []
 
