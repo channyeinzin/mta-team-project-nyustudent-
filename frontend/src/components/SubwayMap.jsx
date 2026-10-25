@@ -15,6 +15,27 @@ const NYC_BOUNDS = [
   [40.95, -73.65], // northeast corner
 ];
 
+// Styles for the highlighted (selected) station: a dark ring that gently pulses.
+const SELECTED_CSS = `
+  .selected-station {
+    width: 24px; height: 24px; border-radius: 50%;
+    background: #fff; border: 4px solid #111827;
+    animation: station-pulse 1.6s ease-out infinite;
+  }
+  @keyframes station-pulse {
+    0%   { box-shadow: 0 0 0 0 rgba(17, 24, 39, 0.5); }
+    100% { box-shadow: 0 0 0 16px rgba(17, 24, 39, 0); }
+  }
+`;
+
+// The marker drawn on top of the selected station.
+const selectedIcon = L.divIcon({
+  className: "", // removes Leaflet's default white box
+  html: `<div class="selected-station"></div>`,
+  iconSize: [24, 24],
+  iconAnchor: [12, 12], // the center of the ring sits on the station
+});
+
 // A train marker. Zoomed in: a colored bullet with the line letter, like real MTA signs.
 // Zoomed out: a small plain dot, so Manhattan doesn't turn into a pile of overlapping bullets.
 function trainIcon(route, color, showLetter) {
@@ -41,9 +62,10 @@ function stationRadius(zoom) {
 }
 
 export default function SubwayMap({ selectedStation, onSelectStation }) {
-  const mapDiv = useRef(null);     // the <div> the map is drawn into
-  const map = useRef(null);        // the Leaflet map object
-  const stations = useRef({});     // station id -> [lat, lon], for zooming to a station
+  const mapDiv = useRef(null);         // the <div> the map is drawn into
+  const map = useRef(null);            // the Leaflet map object
+  const stations = useRef({});         // station id -> [lat, lon], for zooming to a station
+  const selectedMarker = useRef(null); // the highlight ring on the selected station
   const onSelect = useRef(onSelectStation);
   onSelect.current = onSelectStation;
 
@@ -58,7 +80,7 @@ export default function SubwayMap({ selectedStation, onSelectStation }) {
     }).setView([40.73, -73.94], 12);
     map.current = m;
 
-        // Background map from OpenStreetMap, turned gray so the colored subway lines stand out.
+    // Background map from OpenStreetMap, turned gray so the colored subway lines stand out.
     const tiles = L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
       maxZoom: 19,
@@ -68,19 +90,13 @@ export default function SubwayMap({ selectedStation, onSelectStation }) {
     const stationLayer = L.layerGroup();
     const trainLayer = L.layerGroup();
     let timer;
+    let lastTrains = null; // the latest train data, kept so we can redraw on zoom
 
-    // Resize every station dot whenever the zoom level changes.
+    // Resize every station dot to match the zoom level.
     function resizeStations() {
       const r = stationRadius(m.getZoom());
       stationLayer.eachLayer((dot) => dot.setRadius(r));
     }
-        // When the zoom changes, resize the stations and redraw the trains.
-    m.on("zoomend", () => {
-      resizeStations();
-      drawTrains();
-    });
-
-    let lastTrains = null; // the latest train data, kept so we can redraw on zoom
 
     // Draw the trains we have, as letters or dots depending on the zoom level.
     function drawTrains() {
@@ -95,6 +111,12 @@ export default function SubwayMap({ selectedStation, onSelectStation }) {
           .addTo(trainLayer);
       }
     }
+
+    // When the zoom changes, resize the stations and redraw the trains.
+    m.on("zoomend", () => {
+      resizeStations();
+      drawTrains();
+    });
 
     // Download fresh train positions, then draw them.
     async function loadTrains() {
@@ -149,14 +171,39 @@ export default function SubwayMap({ selectedStation, onSelectStation }) {
     };
   }, []);
 
-  // When a station is picked (from the map, search or favorites), zoom to it.
+  // When a station is picked (from the map, search or favorites):
+  // zoom to it and mark it with a pulsing ring and its name.
   useEffect(() => {
+    // Remove the ring from the previously selected station.
+    if (selectedMarker.current) {
+      selectedMarker.current.remove();
+      selectedMarker.current = null;
+    }
+
     const position = selectedStation && stations.current[selectedStation.id];
-    if (position) map.current.flyTo(position, 15);
+    if (!position) return;
+
+    map.current.flyTo(position, 15);
+
+    const marker = L.marker(position, {
+      icon: selectedIcon,
+      zIndexOffset: 1000, // draw it above the trains
+      interactive: false, // clicks pass through to the station underneath
+    });
+    if (selectedStation.name) {
+      marker.bindTooltip(selectedStation.name, {
+        permanent: true, // always show the label, not only on hover
+        direction: "top",
+        offset: [0, -14],
+      });
+    }
+    marker.addTo(map.current);
+    selectedMarker.current = marker;
   }, [selectedStation]);
 
   return (
     <section className="overflow-hidden rounded-2xl bg-white shadow-sm">
+      <style>{SELECTED_CSS}</style>
       {/* z-0 keeps the map below the login popup */}
       <div ref={mapDiv} className="relative z-0 h-[420px] w-full lg:h-[560px]" />
     </section>
