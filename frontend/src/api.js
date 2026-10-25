@@ -27,6 +27,24 @@ export const getNearbyStations = (lat, lon) =>
 export const planTrip = (fromId, toId) =>
   getJson(`/api/trip?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
 
+// FR-04/FR-05: subway vs taxi vs walking for the same journey.
+export const compareCommute = (fromId, toId) =>
+  getJson(
+    `/api/commute/compare?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`
+  );
+
+// FR-06: current conditions. The backend answers 503 with a usable body
+// ({ available: false, reason }) when the weather provider is down, so we read
+// the body instead of treating that as a hard failure.
+export const getWeather = async (lat, lon) => {
+  const response = await fetch(`/api/weather?lat=${lat}&lon=${lon}`);
+  const data = await response.json();
+  if (!response.ok && data.available === undefined) {
+    throw new Error(data.error || "Weather unavailable");
+  }
+  return data;
+};
+
 // Map data (GeoJSON)
 export const getSubwayRoutes = () => getJson("/api/subway/routes");
 

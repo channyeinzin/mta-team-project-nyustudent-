@@ -12,6 +12,8 @@ import ArrivalCards from "./components/ArrivalCards.jsx";
 import StatusDashboard from "./components/StatusDashboard.jsx";
 import SubwayMap from "./components/SubwayMap.jsx";
 import TripPlanner from "./components/TripPlanner.jsx";
+import CommuteCompare from "./components/CommuteCompare.jsx";
+import WeatherCard from "./components/WeatherCard.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);           // the logged-in Firebase user
@@ -51,6 +53,7 @@ export default function App() {
         <div className="space-y-4">
           <StationSearch onSelect={setStation} routeColors={routeColors} />
           <TripPlanner routeColors={routeColors} />
+          <CommuteCompare routeColors={routeColors} />
 
           {station ? (
             <ArrivalCards
@@ -67,7 +70,10 @@ export default function App() {
           <Favorites favorites={favorites} onSelect={setStation} routeColors={routeColors} />
         </div>
 
-        <StatusDashboard />
+        <div className="space-y-4">
+          <WeatherCard station={station} />
+          <StatusDashboard />
+        </div>
       </main>
     </div>
   );

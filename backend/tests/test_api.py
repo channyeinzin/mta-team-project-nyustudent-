@@ -191,7 +191,8 @@ def test_plan_trip_skips_too_short_transfers(monkeypatch):
 def test_trip_endpoint(client, monkeypatch):
     test_client, app_module = client
     leg = {"route": "L", "direction": "Northbound", "toward": "8 Av", "from": "14 St-Union Sq",
-           "to": "8 Av", "depart_time": 0, "arrive_time": 120}
+           "to": "8 Av", "from_id": "L03", "to_id": "L01",
+           "stop_ids": ["L03", "L02", "L01"], "depart_time": 0, "arrive_time": 120}
     monkeypatch.setattr(app_module.mta, "plan_trip", lambda *args: [{"legs": [leg], "transfers": 0}])
 
     data = test_client.get("/api/trip?from=L03&to=L01").get_json()
