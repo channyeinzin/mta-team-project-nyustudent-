@@ -32,6 +32,7 @@ import taxi
 import time
 import routing
 import requests
+import weather
 
 from flask import Flask, jsonify, request
 
@@ -369,7 +370,34 @@ def compare_commute():
         "updated_at": int(time.time()),
     })
 
+# --- FR-06: current weather and contextual cautions ---
 
+@app.get("/api/weather")
+def current_weather():
+    try:
+        lat = float(request.args["lat"])
+        lon = float(request.args["lon"])
+    except (KeyError, TypeError, ValueError):
+        return jsonify({"error": "Provide numeric lat and lon"}), 400
+
+    if not weather.valid_coordinates(lat, lon):
+        return jsonify({"error": "Latitude or longitude out of range"}), 400
+
+    try:
+        result = weather.get_current_weather(lat, lon)
+    except weather.WeatherError as error:
+        app.logger.warning("Weather unavailable: %s", error)
+        return jsonify({
+            "available": False,
+            "source": "Open-Meteo",
+            "source_updated_at": None,
+            "retrieved_at": int(time.time()),
+            "weather": None,
+            "cautions": [],
+            "reason": str(error),
+        }), 503
+
+    return jsonify(result)
 
 
 # --- map data, in GeoJSON (the standard format map libraries understand) ---
