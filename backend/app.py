@@ -1,19 +1,30 @@
-"""app.py — Person 1: the Flask backend.
+"""
+app.py Himanika - Added optional route filtering to the status endpoint.
 
-Start it with:   python app.py      (runs on http://localhost:5001)
+Start with:   python app.py
+Server:       http://localhost:5001
 
 Endpoints (all return JSON):
-  GET /api/status                          service status of every line
-  GET /api/routes                          every line with its colors
-  GET /api/arrivals?station=L03            next trains at one station
+  GET /api/routes                          every subway line with its colors
+  GET /api/arrivals?station=L03            next trains arriving at a station
   GET /api/stations?q=union                search stations by name
-  GET /api/stations/nearby?lat=..&lon=..   closest stations to a point
+  GET /api/stations/nearby?lat=..&lon=..   closest stations to a location
   GET /api/trip?from=L03&to=127            next trips between two stations
 
-For the map (GeoJSON):
-  GET /api/subway/routes                   every line's track
-  GET /api/subway/stops                    every station
-  GET /api/subway/trains?routes=1,2,3      live trains, placed at their next stop
+Subway Map (GeoJSON):
+  GET /api/subway/routes                   subway track geometry for all lines
+  GET /api/subway/stops                    subway station locations
+  GET /api/subway/trains?routes=1,2,3      live trains positioned at their next stop
+
+Service Alerts:
+  GET /api/status                          service status of every subway line
+  GET /api/status?routes=1,2,3             service status and alerts for selected lines
+
+Notes:
+  - All endpoints return JSON.
+  - Subway map endpoints return GeoJSON FeatureCollections.
+  - Train positions represent upcoming station locations, not actual GPS positions.
+  - Service alerts are route-level and are not yet matched to specific journeys.
 """
 
 import os
@@ -42,18 +53,30 @@ def with_colors(route_id):
 
 @app.get("/api/status")
 def status():
-    statuses = mta.get_status(list(ROUTES))
+    requested = request.args.get("routes")
+
+    if requested:
+        route_ids = [
+            route.strip().upper()
+            for route in requested.split(",")
+            if route.strip().upper() in ROUTES
+        ]
+    else:
+        route_ids = list(ROUTES)
+
+    statuses = mta.get_status(route_ids)
+
     lines = [
         {
             "route": route_id,
-            "name": route["long_name"],
+            "name": ROUTES[route_id]["long_name"],
             **with_colors(route_id),
             **statuses[route_id],
         }
-        for route_id, route in ROUTES.items()
+        for route_id in route_ids
     ]
-    return jsonify({"updated_at": int(time.time()), "lines": lines})
 
+    return jsonify({"updated_at": int(time.time()), "lines": lines})
 
 @app.get("/api/routes")
 def routes():
