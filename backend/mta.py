@@ -29,6 +29,7 @@ FEEDS = {
 # The feeds only update about every 30 seconds, so we keep each download for
 # 30 seconds instead of asking the MTA again for every request.
 CACHE_SECONDS = 30
+MAX_TRAIN_FEED_AGE_SECONDS = 180  # Treat old or undated predictions as unavailable.
 _cache = {}  # url -> (time downloaded, data)
 
 
@@ -69,6 +70,61 @@ def _load_feeds(routes=None):
     # Download the feeds at the same time instead of one after another.
     with ThreadPoolExecutor() as pool:
         return list(pool.map(lambda url: _cached(url, _download_trains), urls))
+
+
+def _train_feed_freshness(feeds, now=None):
+    """Summarize GTFS-RT header timestamps; the oldest feed governs freshness.
+
+    Feed timestamps describe MTA source data, not when Flask fetched a response.
+    Unknown, future-dated, or stale feeds are not safe to display as live.
+    """
+    now = time.time() if now is None else now
+    timestamps = [int(feed.header.timestamp) for feed in feeds]
+
+    result = {
+        "source_updated_at": min(timestamps) if timestamps and all(timestamps) else None,
+        "age_seconds": None,
+        "fresh": False,
+        "freshness_threshold_seconds": MAX_TRAIN_FEED_AGE_SECONDS,
+        "reason": None,
+    }
+
+    if not timestamps or any(not timestamp for timestamp in timestamps):
+        result["reason"] = "MTA feed timestamp unavailable"
+        return result
+
+    ages = [now - timestamp for timestamp in timestamps]
+    if any(age < -60 for age in ages):
+        result["reason"] = "MTA feed timestamp is in the future"
+        return result
+
+    result["age_seconds"] = max(0, round(max(ages)))
+    if any(age > MAX_TRAIN_FEED_AGE_SECONDS for age in ages):
+        result["reason"] = "MTA trip data is stale"
+        return result
+
+    result["fresh"] = True
+    return result
+
+
+def get_trip_feed_freshness():
+    """Read timestamps from the cached feeds used by the last trip-planning call.
+
+    No network requests are made. Missing cached feeds are reported as unknown.
+    """
+    feeds = []
+    for url in FEEDS:
+        saved = _cache.get(url)
+        if saved is None:
+            return {
+                "source_updated_at": None,
+                "age_seconds": None,
+                "fresh": False,
+                "freshness_threshold_seconds": MAX_TRAIN_FEED_AGE_SECONDS,
+                "reason": "MTA trip-feed timestamps unavailable",
+            }
+        feeds.append(saved[1])
+    return _train_feed_freshness(feeds)
 
 
 # ---------------------------------------------------------------------------
@@ -198,16 +254,45 @@ def get_status(route_ids):
             continue
 
         alert_type = alert.get("transit_realtime.mercury_alert", {}).get("alert_type", "Service Change")
+        alert_updated_at = alert.get("transit_realtime.mercury_alert", {}).get("updated_at")
         status = _status_of(alert_type)
         texts = alert.get("header_text", {}).get("translation", [])
         text = next((t["text"] for t in texts if t.get("language") == "en"), "")
 
-        # One alert can affect several lines.
-        affected = {e["route_id"] for e in alert.get("informed_entity", []) if "route_id" in e}
-        for route in affected:
+        # Preserve affected routes, stops, and directions for future trip matching.
+        affected_entities = [
+            {
+                "route_id": e.get("route_id"),
+                "stop_id": e.get("stop_id"),
+                "direction_id": e.get("direction_id"),
+            }
+            for e in alert.get("informed_entity", [])
+        ]
+
+        affected_routes = {
+            e["route_id"]
+            for e in affected_entities
+            if e["route_id"] is not None
+        }
+
+        for route in affected_routes:
             if route not in result:
                 continue
-            result[route]["alerts"].append({"type": alert_type, "text": text})
+
+            # Store only the affected entities for this route.
+            route_entities = [
+                e for e in affected_entities
+                if e["route_id"] == route
+            ]
+
+            result[route]["alerts"].append({
+                "id": entity.get("id"),
+                "type": alert_type,
+                "text": text,
+                "updated_at": alert_updated_at,
+                "affected_entities": route_entities,
+            })
+
             if STATUS_ORDER.index(status) < STATUS_ORDER.index(result[route]["status"]):
                 result[route]["status"] = status
 
@@ -226,7 +311,12 @@ def _live_trips():
     {"route": "L", "direction": "Northbound", "stops": {station id: (position, time)}, "order": [...]}"""
     now = time.time()
     trips = []
-    for feed in _load_feeds():
+    feeds = _load_feeds()
+    freshness = _train_feed_freshness(feeds)
+    if not freshness["fresh"]:
+        raise MTAError(freshness["reason"])
+
+    for feed in feeds:
         for entity in feed.entity:
             if not entity.HasField("trip_update"):
                 continue
@@ -284,12 +374,24 @@ def plan_trip(from_id, to_id, transfers, stop_names, max_options=5):
 
     def leg(trip, board, board_time, alight, alight_time):
         last_stop = trip["order"][-1][0]
+
+        start_pos = trip["stops"][board][0]
+        end_pos = trip["stops"][alight][0]
+
+        stop_ids = [
+            station_id
+            for station_id, _ in trip["order"][start_pos:end_pos + 1]
+        ]
+
         return {
             "route": trip["route"],
             "direction": trip["direction"],
             "toward": stop_names.get(last_stop, last_stop),
             "from": stop_names.get(board, board),
             "to": stop_names.get(alight, alight),
+            "from_id": board,
+            "to_id": alight,
+            "stop_ids": stop_ids,
             "depart_time": board_time,
             "arrive_time": alight_time,
         }
@@ -344,3 +446,58 @@ def plan_trip(from_id, to_id, transfers, stop_names, max_options=5):
         if len(best) == max_options:
             break
     return best
+
+# ---------------------------------------------------------------------------
+# Journey-specific service alert matching
+# ---------------------------------------------------------------------------
+
+def match_trip_alerts(leg, alerts):
+    """Find service alerts potentially affecting one subway journey leg."""
+
+    route = leg["route"]
+    direction = leg["direction"]
+    stop_ids = set(leg["stop_ids"])
+
+    # MTA direction IDs: 0 = Northbound, 1 = Southbound
+    direction_id = 0 if direction == "Northbound" else 1
+
+    matched = []
+
+    for alert in alerts:
+        entities = alert.get("affected_entities", [])
+
+        # Some alerts apply to the whole route without specifying stations.
+        if not entities:
+            matched.append({
+                **alert,
+                "relevance": "possible",
+                "reason": "Route-level alert without specific station information",
+            })
+            continue
+
+        for entity in entities:
+            # Check the subway route.
+            if entity.get("route_id") != route:
+                continue
+
+            # Check direction, if specified.
+            alert_direction = entity.get("direction_id")
+
+            if alert_direction is not None and alert_direction != direction_id:
+                continue
+
+            # Check affected stations, if specified.
+            alert_stop = entity.get("stop_id")
+
+            if alert_stop is not None and alert_stop not in stop_ids:
+                continue
+
+            matched.append({
+                **alert,
+                "relevance": "possible",
+                "reason": "Alert matches the journey route, direction, and/or stations",
+            })
+
+            break
+
+    return matched

@@ -1,23 +1,37 @@
-"""app.py — Person 1: the Flask backend.
+"""
+app.py Himanika - Added optional route filtering to the status endpoint.
 
-Start it with:   python app.py      (runs on http://localhost:5001)
+Start with:   python app.py
+Server:       http://localhost:5001
 
 Endpoints (all return JSON):
-  GET /api/status                          service status of every line
-  GET /api/routes                          every line with its colors
-  GET /api/arrivals?station=L03            next trains at one station
+  GET /api/routes                          every subway line with its colors
+  GET /api/arrivals?station=L03            next trains arriving at a station
   GET /api/stations?q=union                search stations by name
-  GET /api/stations/nearby?lat=..&lon=..   closest stations to a point
+  GET /api/stations/nearby?lat=..&lon=..   closest stations to a location
   GET /api/trip?from=L03&to=127            next trips between two stations
 
-For the map (GeoJSON):
-  GET /api/subway/routes                   every line's track
-  GET /api/subway/stops                    every station
-  GET /api/subway/trains?routes=1,2,3      live trains, placed at their next stop
+Subway Map (GeoJSON):
+  GET /api/subway/routes                   subway track geometry for all lines
+  GET /api/subway/stops                    subway station locations
+  GET /api/subway/trains?routes=1,2,3      live trains positioned at their next stop
+
+Service Alerts:
+  GET /api/status                          service status of every subway line
+  GET /api/status?routes=1,2,3             service status and alerts for selected lines
+
+Notes:
+  - All endpoints return JSON.
+  - Subway map endpoints return GeoJSON FeatureCollections.
+  - Train positions represent upcoming station locations, not actual GPS positions.
+  - Service alerts are route-level and are not yet matched to specific journeys.
 """
 
 import os
+import taxi
 import time
+import routing
+import requests
 
 from flask import Flask, jsonify, request
 
@@ -42,18 +56,30 @@ def with_colors(route_id):
 
 @app.get("/api/status")
 def status():
-    statuses = mta.get_status(list(ROUTES))
+    requested = request.args.get("routes")
+
+    if requested:
+        route_ids = [
+            route.strip().upper()
+            for route in requested.split(",")
+            if route.strip().upper() in ROUTES
+        ]
+    else:
+        route_ids = list(ROUTES)
+
+    statuses = mta.get_status(route_ids)
+
     lines = [
         {
             "route": route_id,
-            "name": route["long_name"],
+            "name": ROUTES[route_id]["long_name"],
             **with_colors(route_id),
             **statuses[route_id],
         }
-        for route_id, route in ROUTES.items()
+        for route_id in route_ids
     ]
-    return jsonify({"updated_at": int(time.time()), "lines": lines})
 
+    return jsonify({"updated_at": int(time.time()), "lines": lines})
 
 @app.get("/api/routes")
 def routes():
@@ -112,12 +138,238 @@ def trip():
         # e.g. Union Sq L platform -> Union Sq 4/5/6 platform: no train needed
         return jsonify({"updated_at": int(time.time()), "from": start, "to": end, "options": [], "walk": True})
 
+
     options = mta.plan_trip(from_id, to_id, transfers, database.get_station_names())
+
+    # Get service alerts for the subway routes used by the planned trips.
+    route_ids = list({
+        leg["route"]
+        for option in options
+        for leg in option["legs"]
+    })
+
+    statuses = mta.get_status(route_ids) if route_ids else {}
+
+    # Match alerts to each leg of each journey.
     for option in options:
         for leg in option["legs"]:
             leg.update(with_colors(leg["route"]))
 
-    return jsonify({"updated_at": int(time.time()), "from": start, "to": end, "options": options})
+            route_alerts = statuses[leg["route"]]["alerts"]
+            leg["alerts"] = mta.match_trip_alerts(leg, route_alerts)
+
+    return jsonify({
+        "updated_at": int(time.time()),
+        "from": start,
+        "to": end,
+        "options": options
+    })
+
+
+
+
+@app.get("/api/commute/compare")
+def compare_commute():
+    from_id = request.args.get("from")
+    to_id = request.args.get("to")
+
+    if not from_id or not to_id:
+        return jsonify({"error": "Missing origin or destination"}), 400
+
+    start = database.get_station(from_id)
+    end = database.get_station(to_id)
+
+    if not start or not end:
+        return jsonify({"error": "Unknown station"}), 404
+
+    if from_id == to_id:
+        return jsonify({
+            "error": "Start and destination are the same station"
+        }), 400
+
+    # --- Subway journey planning and MTA source freshness ---
+    subway_error = None
+    subway_options = []
+    trip_freshness = {
+        "source_updated_at": None,
+        "age_seconds": None,
+        "fresh": False,
+        "freshness_threshold_seconds": mta.MAX_TRAIN_FEED_AGE_SECONDS,
+        "reason": "MTA trip-feed timestamps unavailable",
+    }
+
+    try:
+        transfers = database.get_transfers()
+        subway_options = mta.plan_trip(
+            from_id, to_id, transfers, database.get_station_names()
+        )
+        # Reads cached feed headers; does not request MTA feeds again.
+        trip_freshness = mta.get_trip_feed_freshness()
+        if not trip_freshness["fresh"]:
+            subway_options = []
+            subway_error = trip_freshness["reason"]
+    except mta.MTAError as error:
+        app.logger.warning("Subway planning unavailable: %s", error)
+        subway_options = []
+        subway_error = str(error) if str(error) in (
+            "MTA trip data is stale",
+            "MTA feed timestamp unavailable",
+            "MTA feed timestamp is in the future",
+        ) else "MTA service temporarily unavailable"
+
+    # --- Route-relevant service alerts ---
+    route_ids = list({
+        leg["route"]
+        for option in subway_options
+        for leg in option["legs"]
+    })
+
+    alerts_available = False
+    statuses = {}
+    if route_ids:
+        try:
+            statuses = mta.get_status(route_ids)
+            alerts_available = True
+        except mta.MTAError as error:
+            app.logger.warning("MTA alerts unavailable: %s", error)
+
+    for option in subway_options:
+        for leg in option["legs"]:
+            leg.update(with_colors(leg["route"]))
+            route_alerts = statuses.get(leg["route"], {}).get("alerts", [])
+            leg["alerts"] = mta.match_trip_alerts(leg, route_alerts)
+
+        option["total_eta_min"] = option["minutes"]
+        option["fare_usd"] = 3.00
+        option["fare_source"] = "MTA standard subway base fare"
+
+    # --- Walking route ---
+    try:
+        walking = routing.get_route(
+            start, end, "foot-walking"
+        )
+
+        walking["available"] = True
+        walking["total_eta_min"] = round(
+            walking["duration_seconds"] / 60, 1
+        )
+
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        TypeError,
+        ValueError
+    ) as error:
+        app.logger.warning("Walking route unavailable: %s", error)
+
+        walking = {
+            "available": False,
+            "total_eta_min": None,
+            "reason": "Walking route temporarily unavailable",
+        }
+
+    # --- Driving route ---
+    try:
+        driving = routing.get_route(
+            start, end, "driving-car"
+        )
+
+        driving["available"] = True
+
+    except (
+        requests.RequestException,
+        KeyError,
+        IndexError,
+        TypeError,
+        ValueError
+    ) as error:
+        app.logger.warning("Driving route unavailable: %s", error)
+
+        driving = {
+            "available": False,
+            "reason": "Driving route temporarily unavailable",
+        }
+
+    # --- Taxi fare and ETA ---
+    pickup_minutes = 5
+    taxi_fare = None
+    taxi_total_minutes = None
+
+    if driving["available"]:
+        coordinates = driving.get("coordinates", [])
+
+        nys_zone = taxi.crosses_nys_congestion_zone(
+            coordinates
+        )
+
+        mta_zone = taxi.crosses_mta_congestion_zone(
+            coordinates
+        )
+
+        # Do not include unverified congestion charges.
+        taxi_fare = taxi.estimate_fare(
+            driving["distance_m"],
+            driving["duration_seconds"],
+        )
+
+        taxi_fare["congestion_zones"] = {
+            "nys": "possible" if nys_zone else "unknown",
+            "mta": "possible" if mta_zone else "unknown",
+        }
+
+        taxi_fare["assumptions"].append(
+            "Congestion charges are not included because "
+            "zone applicability has not been verified."
+        )
+
+        taxi_total_minutes = round(
+            driving["duration_seconds"] / 60
+            + pickup_minutes,
+            1
+        )
+
+        # Keep driving route coordinates internal.
+        driving.pop("coordinates", None)
+
+    # --- Final comparison response ---
+    return jsonify({
+        "from": start,
+        "to": end,
+
+        "subway": {
+            "available": bool(subway_options),
+            "reason": subway_error,
+            "alerts_available": alerts_available,
+            "options": subway_options,
+            "source": "MTA GTFS-Realtime",
+            "source_updated_at": trip_freshness["source_updated_at"],
+            "source_age_seconds": trip_freshness["age_seconds"],
+            "fresh": trip_freshness["fresh"],
+            "freshness_threshold_seconds": trip_freshness["freshness_threshold_seconds"],
+            "retrieved_at": int(time.time()),
+        },
+
+        "walking": walking,
+
+        "driving": driving,
+
+        "taxi": {
+            "available": taxi_fare is not None,
+            "total_eta_min": taxi_total_minutes,
+            "pickup_assumption_min": pickup_minutes,
+            "fare": taxi_fare,
+            "source": "openrouteservice + NYC TLC",
+            "reason": (
+                None if taxi_fare is not None
+                else "Driving route temporarily unavailable"
+            ),
+        },
+
+        "updated_at": int(time.time()),
+    })
+
+
 
 
 # --- map data, in GeoJSON (the standard format map libraries understand) ---
