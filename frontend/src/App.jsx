@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { Activity, LocateFixed, Moon, Route, Sparkle, Sun, TrainFront } from "lucide-react";
+import { Activity, CloudSun, LocateFixed, Moon, Route, Scale, Sparkle, Sun, TrainFront } from "lucide-react";
 import { auth } from "./firebase.js";
 import { getRoutes } from "./api.js";
 import useFavorites from "./useFavorites.js";
@@ -17,6 +17,8 @@ import StatusDashboard from "./components/StatusDashboard.jsx";
 import SubwayMap from "./components/SubwayMap.jsx";
 import TripPlanner from "./components/TripPlanner.jsx";
 import Collapsible from "./components/Collapsible.jsx";
+import CommuteCompare from "./components/CommuteCompare.jsx";
+import WeatherCard from "./components/WeatherCard.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);           // the logged-in Firebase user
@@ -141,6 +143,14 @@ export default function App() {
 
           <Collapsible title="Line status" icon={<Activity size={18} />}>
             <StatusDashboard bare />
+          </Collapsible>
+
+          <Collapsible title="Weather" icon={<CloudSun size={18} />}>
+            <WeatherCard station={station} bare />
+          </Collapsible>
+
+          <Collapsible title="Compare subway, taxi and walking" icon={<Scale size={18} />}>
+            <CommuteCompare routeColors={routeColors} bare />
           </Collapsible>
         </div>
       </main>

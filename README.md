@@ -14,6 +14,8 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 | React + Vite | The website |
 | Leaflet + OpenStreetMap | The interactive live map |
 | Tailwind CSS + Lucide | Styling, dark mode and icons |
+| Open-Meteo | Current weather near a station |
+| openrouteservice + NYC TLC rates | Walking and driving routes, taxi fare estimates |
 | Browser local storage | Saved stations and trips (no account needed) |
 | pytest | Backend tests |
 
@@ -27,6 +29,8 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 - **Saved:** keep favorite stations and trips (like your daily commute) and open them with one tap
 - **Live map:** every train updates every 10 seconds; moving trains glide to their next station and glow in their line color
 - **Line highlight:** tap a line to light it up and fade everything else
+- **Weather:** current conditions near your station, with cautions like "walking surfaces may be slippery"
+- **Compare your options:** the same trip by subway, taxi and walking, side by side (taxi fare is an estimate, not a quote)
 - **Dark mode and full-screen map**
 
 ## Architecture
@@ -103,6 +107,17 @@ npm run dev
 
 Go to **http://localhost:5173**, then try **Near me** or **Plan a trip**.
 
+**Optional - turn on taxi and walking comparison:**
+
+Get a free key at https://openrouteservice.org/dev/#/signup, then set it in terminal 1 before starting the backend:
+
+```bash
+export ORS_API_KEY=your_key_here
+python app.py
+```
+
+Without it, "Compare your options" still shows the subway trip.
+
 **Run the tests (optional):**
 
 ```bash
@@ -110,8 +125,6 @@ cd backend
 source venv/bin/activate
 pytest
 ```
-
-> Known issue: `test_trip_endpoint` currently fails because its fake trip is missing the `stop_ids` field that trip alert matching now needs. The app itself works.
 
 ## Demo Output
 
@@ -157,13 +170,12 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | `GET /api/trip?from=L08&to=A27` | Next trips between two stations |
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/subway/routes` · `/stops` · `/trains` | Map data as GeoJSON |
-| `GET /api/weather?lat=..&lon=..` | Current weather (backend only for now) |
-| `GET /api/commute/compare?from=..&to=..` | Subway vs. other ways to travel (needs `ORS_API_KEY`; backend only for now) |
+| `GET /api/weather?lat=..&lon=..` | Current weather and travel cautions |
+| `GET /api/commute/compare?from=..&to=..` | The same trip by subway, taxi and walking (taxi/walking need `ORS_API_KEY`) |
 
 ## Future Work
 
 - Accounts (Firebase login is already in the code) so saved trips follow you to any device
 - Trains that move along the curve of the track instead of in a straight line
-- Weather and commute comparison on the website
 - Push alerts when your saved line has delays
 - Deploy online so anyone can use it
