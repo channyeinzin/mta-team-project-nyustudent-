@@ -18,15 +18,17 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 | Open-Meteo | Current weather near a station |
 | openrouteservice | Real walking routes (optional; otherwise estimated from distance) |
 | Browser local storage | Saved stations and trips (no account needed) |
+| Dijkstra's algorithm (`backend/dijkstra.py`) | Fastest route on a graph built from the live trains |
 | pytest | Backend tests |
 
 ## Features
 
-- **Near me:** one tap shows your location, a walking line to your closest station, and the 5 stations nearest you
-- **Station search:** type it how you say it ("25th street", "5th avenue", "union square"), or tap a station on the map. Every station shows its borough, so the six "86 St" stations are easy to tell apart.
-- **Live arrivals:** the next Uptown and Downtown trains at any station, in minutes
+- **Plan a trip from where you are:** tap the GPS button and "From" fills in with your closest station, with a walking line to it on the map. Then type where you're going in "To".
+- **Smart station names:** type it how you say it ("25th street", "5th avenue", "union square"), or tap a station on the map. Every station shows its borough, so the six "86 St" stations are easy to tell apart.
+- **Live arrivals:** as soon as you pick a start, its next Uptown and Downtown trains show, in minutes
 - **Line status:** a colored dot under every train (Good Service, Delays, Suspended…), with a **Why?** button that shows the MTA's alert
-- **Trip planner:** type a destination and get the next trains, direct or with one transfer. "From" fills in your closest station automatically, and you also see how far the trip is on foot (miles and minutes).
+- **Fastest route (Dijkstra):** the quickest way from From to To with any number of transfers, drawn on the map
+- **Next trains:** the next departures from From to To, direct or with one transfer, plus how far the trip is on foot (miles and minutes)
 - **Saved:** keep favorite stations and trips (like your daily commute) and open them with one tap
 - **Live map:** every train updates every 10 seconds; moving trains glide to their next station and glow in their line color
 - **Line highlight:** tap a line to light it up and fade everything else
@@ -54,7 +56,7 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 │   [React website :5173]                                      │
 │   ┌────────────────────────┐   ┌──────────────────────────┐  │
 │   │ Live map (Leaflet)     │   │ Side panel               │  │
-│   │  - moving trains       │   │  - Near me / search      │  │
+│   │  - moving trains       │   │  - From / To with GPS    │  │
 │   │  - line highlight      │   │  - arrivals + status     │  │
 │   │  - your location       │   │  - trip + walk, saved    │  │
 │   └────────────────────────┘   └──────────────────────────┘  │
@@ -106,7 +108,7 @@ npm run dev
 
 **Step 3 - Open the app:**
 
-Go to **http://localhost:5173**, then try **Near me** or **Plan a trip**.
+Go to **http://localhost:5173**, then tap the GPS button next to **From**, or type a station.
 
 **Optional - use real walking routes:**
 
@@ -126,6 +128,19 @@ cd backend
 source venv/bin/activate
 pytest
 ```
+
+## How the fastest route works
+
+The subway becomes a graph. A **node** is a station, either on the platform or on a line (for example "14 St-Union Sq, on the N"). The **edges** are weighted in seconds:
+
+| Edge | From → To | Weight |
+|---|---|---|
+| Ride | a stop on a line → the next stop on that line | how long trains take between them right now (live feed) |
+| Board | platform → a line | 3 minutes, the average wait for a train |
+| Get off | a line → platform | 0 |
+| Walk | platform → a connected station's platform | the walk time from MTA `transfers.txt` |
+
+Dijkstra's algorithm always expands the point with the smallest total time so far, so the first time it reaches the destination, that route is the fastest. The 3-minute boarding cost means it only changes trains when that saves time. Because the graph comes from the live trains, a suspended line simply has no edges, and the route goes around it.
 
 ## Demo Output
 
@@ -157,7 +172,7 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | The map shows no trains | The backend isn't running. Start it in terminal 1. |
 | `Port 5001 is in use` | An old copy is running. Close its terminal, or on Mac/Linux run `lsof -ti :5001 \| xargs kill`. |
 | `cd: no such file or directory` | You're already in that folder. Run `pwd` to check. |
-| **Near me** does nothing | Allow location access in your browser (works on `localhost` and HTTPS). |
+| The GPS button does nothing | Allow location access in your browser (works on `localhost` and HTTPS). |
 | Something broke after `git pull` | Run `npm install` again in `frontend`. |
 
 ## API
@@ -169,6 +184,7 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | `GET /api/arrivals?station=L03` | Next trains at a station |
 | `GET /api/status` | How every line is running, with alerts |
 | `GET /api/trip?from=L08&to=A27` | Next trips between two stations |
+| `GET /api/route?from=L08&to=A27` | Fastest route with any number of transfers (Dijkstra) |
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/subway/routes` · `/stops` · `/trains` | Map data as GeoJSON |
 | `GET /api/weather?lat=..&lon=..` | Current weather and travel cautions |

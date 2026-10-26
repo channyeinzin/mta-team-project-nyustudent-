@@ -10,6 +10,7 @@ Endpoints (all return JSON):
   GET /api/stations?q=union                search stations by name
   GET /api/stations/nearby?lat=..&lon=..   closest stations to a location
   GET /api/trip?from=L03&to=127            next trips between two stations
+  GET /api/route?from=L03&to=127           fastest route, any number of transfers (Dijkstra)
 
 Subway Map (GeoJSON):
   GET /api/subway/routes                   subway track geometry for all lines
@@ -37,6 +38,7 @@ import weather
 from flask import Flask, jsonify, request
 
 import database
+import dijkstra
 import mta
 
 app = Flask(__name__)
@@ -164,6 +166,57 @@ def trip():
         "from": start,
         "to": end,
         "options": options
+    })
+
+
+@app.get("/api/route")
+def fastest_route():
+    """The fastest route with any number of transfers, found with Dijkstra's
+    algorithm on a graph of the live trains (see dijkstra.py)."""
+    from_id = request.args.get("from")
+    to_id = request.args.get("to")
+    if not from_id or not to_id:
+        return jsonify({"error": "Add a start and a destination, e.g. /api/route?from=L03&to=127"}), 400
+    start, end = database.get_station(from_id), database.get_station(to_id)
+    if not start or not end:
+        return jsonify({"error": "Unknown station"}), 404
+
+    transfers = database.get_transfers()
+    names = database.get_station_names()
+
+    def platforms(station_id):
+        """The station plus its other platforms with the same name (Union Sq L, 4/5/6, N/Q/R/W)."""
+        return {station_id} | {o for o, _ in transfers.get(station_id, []) if names.get(o) == names.get(station_id)}
+
+    trips = mta.live_trips()
+    graph = dijkstra.build_graph(trips, transfers)
+    found = dijkstra.shortest_path(graph, platforms(from_id), platforms(to_id))
+    if not found:
+        return jsonify({"found": False, "from": start, "to": end})
+
+    points = {s["id"]: [s["lat"], s["lon"]] for s in database.get_all_stations()}
+    legs = dijkstra.to_legs(found["steps"])
+    for leg in legs:
+        # "points": the leg's stops as [lat, lon], for drawing the route on the map
+        if leg["kind"] == "ride":
+            leg.update(with_colors(leg["line"]))
+            leg["points"] = [points[s] for s in leg["stops"] if s in points]
+            leg["from"], leg["to"] = names.get(leg["stops"][0]), names.get(leg["stops"][-1])
+            leg["stop_count"] = len(leg["stops"]) - 1
+        else:
+            leg["points"] = [points[s] for s in (leg["from"], leg["to"]) if s in points]
+            leg["from"], leg["to"] = names.get(leg["from"]), names.get(leg["to"])
+        leg["minutes"] = round(leg.pop("seconds") / 60, 1)
+
+    return jsonify({
+        "found": True,
+        "from": start,
+        "to": end,
+        "minutes": round(found["seconds"] / 60),
+        "transfers": max(0, sum(leg["kind"] == "ride" for leg in legs) - 1),
+        "explored": found["explored"],  # how many nodes Dijkstra finished before reaching the goal
+        "graph_size": len(graph),
+        "legs": legs,
     })
 
 

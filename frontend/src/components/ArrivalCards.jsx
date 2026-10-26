@@ -3,7 +3,7 @@
 
 import { useEffect, useState } from "react";
 import { getArrivals } from "../api.js";
-import { Navigation, Sparkle, X } from "lucide-react";
+import { Sparkle } from "lucide-react";
 import RouteBullet from "./RouteBullet.jsx";
 import LineStatus from "./LineStatus.jsx";
 
@@ -28,7 +28,7 @@ function ArrivalCard({ train, line, alertColors }) {
   );
 }
 
-export default function ArrivalCards({ station, isFavorite, onToggleFavorite, onDirections, onClose, statusFor, alertColors }) {
+export default function ArrivalCards({ station, isFavorite, onToggleFavorite, statusFor, alertColors }) {
   const [arrivals, setArrivals] = useState(null);
   const [error, setError] = useState(null);
 
@@ -54,26 +54,14 @@ export default function ArrivalCards({ station, isFavorite, onToggleFavorite, on
     // A quick teal glow ("picked") when you choose a station, so you notice it changed.
     <section className="picked rounded-2xl bg-white p-4 shadow-sm">
       <div className="mb-4 flex items-start gap-2">
-        <div className="flex-1">
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-semibold tracking-wide text-gray-500 uppercase">Trains at</p>
           <h2 className="text-xl font-bold">{station.name}</h2>
           {station.borough && <p className="text-sm text-gray-500">{station.borough}</p>}
         </div>
-        <button onClick={onClose} title="Close" className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
-          <X size={18} />
-        </button>
-      </div>
-
-      {/* The two things you'd do next: go there, or keep it. */}
-      <div className="mb-4 grid grid-cols-2 gap-2">
-        <button
-          onClick={onDirections}
-          className="flex items-center justify-center gap-1.5 rounded-xl bg-gray-900 py-2 text-sm font-medium text-white hover:bg-gray-700"
-        >
-          <Navigation size={14} /> Directions
-        </button>
         <button
           onClick={onToggleFavorite}
-          className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 py-2 text-sm font-medium hover:bg-gray-100"
+          className="flex shrink-0 items-center gap-1.5 rounded-xl border border-gray-300 px-3 py-1.5 text-sm font-medium hover:bg-gray-100"
         >
           <Sparkle size={14} className={isFavorite ? "fill-current" : ""} />
           {isFavorite ? "Saved" : "Save"}

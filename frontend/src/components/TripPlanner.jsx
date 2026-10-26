@@ -1,9 +1,9 @@
 // Person 4: trip planner — pick a start and a destination (or use the locate button for the
 // station nearest you) and see the next trains that get you there.
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { compareCommute, planTrip } from "../api.js";
-import { ArrowUpDown, Footprints, LocateFixed, Sparkle, X } from "lucide-react";
+import { ArrowUpDown, Footprints, LocateFixed, Sparkle } from "lucide-react";
 import RouteBullet from "./RouteBullet.jsx";
 import LineStatus from "./LineStatus.jsx";
 import StationInput from "./StationInput.jsx";
@@ -62,31 +62,13 @@ function TripOption({ option, from, to, statusFor, alertColors }) {
   );
 }
 
-export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tripToOpen, myLocation, onClose, statusFor, alertColors }) {
+// The page's main box: From and To. App.jsx owns the two stations, so it can also
+// show the From station's trains and highlight it on the map.
+export default function TripPlanner({ from, to, onFromChange, onToChange, routeColors, isSavedTrip, onToggleTrip, myLocation, statusFor, alertColors }) {
   const nearest = myLocation.nearby[0] ?? null; // the station closest to you (when location is on)
-  const [from, setFrom] = useState(() => tripToOpen?.from ?? nearest);
-  const [to, setTo] = useState(() => tripToOpen?.to ?? null);
   const [result, setResult] = useState(null);
   const [walking, setWalking] = useState(null); // { distance_miles, total_eta_min, estimate_only }
   const [message, setMessage] = useState("");
-  const box = useRef(null);
-
-  // Opened (or re-opened from "Directions" or a saved trip): fill in the stations,
-  // starting from the station closest to you if no start was given, then scroll
-  // here and put the cursor in the first empty box so you can just type.
-  useEffect(() => {
-    if (tripToOpen) {
-      setFrom(tripToOpen.from ?? nearest);
-      setTo(tripToOpen.to ?? null);
-    }
-    box.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
-    setTimeout(() => box.current?.querySelector("input")?.focus(), 300);
-  }, [tripToOpen]); // only when a new trip is opened
-
-  // Location just found your closest station: use it as the start, if you haven't picked one.
-  useEffect(() => {
-    if (nearest) setFrom((current) => current ?? nearest);
-  }, [nearest?.id]); // only when the closest station changes
 
   // Once both stations are picked, find trips — and refresh every 30 seconds.
   useEffect(() => {
@@ -120,37 +102,33 @@ export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tr
     };
   }, [from, to]);
 
-  // Locate button: start from the station closest to you (turns location on if needed).
+  // GPS button: start from the station closest to you (turns location on if needed;
+  // App.jsx fills From in once the closest station is found).
   function startFromMyLocation() {
-    if (nearest) setFrom(nearest);
-    else myLocation.start(); // the effect above fills it in once the closest station is found
+    if (nearest) onFromChange(nearest);
+    else myLocation.start();
   }
 
   function swap() {
-    setFrom(to);
-    setTo(from);
+    onFromChange(to);
+    onToChange(from);
   }
 
   return (
-    <section ref={box} className="picked rounded-2xl bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center gap-2">
-        <h2 className="flex-1 text-lg font-bold">Plan a trip</h2>
-        <button onClick={onClose} title="Close" className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
-          <X size={18} />
-        </button>
-      </div>
+    <section className="rounded-2xl bg-white p-4 shadow-sm">
+      <h2 className="mb-3 text-lg font-bold">Plan a trip</h2>
 
       <div className="space-y-2">
-        <StationInput label="From" station={from} onChange={setFrom} routeColors={routeColors}>
+        <StationInput label="From" station={from} onChange={onFromChange} routeColors={routeColors}>
           <button
             onClick={startFromMyLocation}
-            title="Start from the station nearest me"
+            title="Start from the station nearest me (GPS)"
             className="rounded-xl border border-gray-300 px-3 py-2 hover:bg-gray-100"
           >
             <LocateFixed size={18} />
           </button>
         </StationInput>
-        <StationInput label="To" station={to} onChange={setTo} routeColors={routeColors}>
+        <StationInput label="To" station={to} onChange={onToChange} routeColors={routeColors}>
           <button
             onClick={swap}
             title="Swap start and destination"
@@ -179,6 +157,13 @@ export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tr
         </button>
       )}
 
+      {myLocation.status === "finding" && !from && <p className="mt-3 text-sm text-gray-500">Finding your location…</p>}
+      {myLocation.status === "error" && !from && (
+        <p className="mt-3 text-sm text-gray-500">Location not available. Type your start station instead.</p>
+      )}
+      {!from && !to && myLocation.status === "off" && (
+        <p className="mt-3 text-sm text-gray-500">Tap the GPS button to start from the station nearest you, or tap a station on the map.</p>
+      )}
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
 
       {result && (

@@ -2,40 +2,65 @@
 
 import { useEffect, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { Activity, CloudSun, LocateFixed, Moon, Route, Sparkle, Sun, TrainFront } from "lucide-react";
+import { Activity, CloudSun, Moon, Sparkle, Sun, TrainFront } from "lucide-react";
 import { auth } from "./firebase.js";
-import { getRoutes } from "./api.js";
+import { getFastestRoute, getRoutes } from "./api.js";
 import useFavorites from "./useFavorites.js";
 import useTheme from "./useTheme.js";
 import useMyLocation from "./useMyLocation.js";
 import useServiceStatus from "./useServiceStatus.js";
 import Login from "./components/Login.jsx";
-import StationSearch from "./components/StationSearch.jsx";
 import Favorites from "./components/Favorites.jsx";
 import ArrivalCards from "./components/ArrivalCards.jsx";
 import StatusDashboard from "./components/StatusDashboard.jsx";
 import SubwayMap from "./components/SubwayMap.jsx";
 import TripPlanner from "./components/TripPlanner.jsx";
 import Collapsible from "./components/Collapsible.jsx";
+import FastestRoute from "./components/FastestRoute.jsx";
 import WeatherCard from "./components/WeatherCard.jsx";
 
 export default function App() {
   const [user, setUser] = useState(null);           // the logged-in Firebase user
-  const [station, setStation] = useState(null);     // the station you picked
+  const [from, setFrom] = useState(null);           // where the trip starts
+  const [to, setTo] = useState(null);               // where it goes
   const [routeColors, setRouteColors] = useState({}); // { "L": { color, textColor } }
   const { theme, toggleTheme } = useTheme();
   const myLocation = useMyLocation(); // where the user is + the closest stations (when turned on)
   const { statusFor, alertColors } = useServiceStatus(); // how every line is running
-  const [tripOpen, setTripOpen] = useState(false);     // is the trip planner showing?
-  const [tripToOpen, setTripToOpen] = useState(null);  // stations to fill in when it opens
   const { favorites, isFavorite, toggleFavorite, trips, isSavedTrip, toggleTrip } = useFavorites(user);
 
-  // Open the trip planner, optionally with stations filled in.
-  // (A new object each time, so opening the same trip twice still works.)
-  function openTrip(trip = {}) {
-    setTripToOpen({ ...trip });
-    setTripOpen(true);
+  // GPS found your closest station: start the trip there, if you haven't picked a start.
+  const nearest = myLocation.nearby[0] ?? null;
+  useEffect(() => {
+    if (nearest) setFrom((current) => current ?? nearest);
+  }, [nearest?.id]); // only when the closest station changes
+
+  // A station clicked on the map fills From first, then To.
+  function pickFromMap(station) {
+    if (!from) setFrom(station);
+    else if (station.id !== from.id) setTo(station);
   }
+
+  // The station whose trains we show: where you start (or, before that, where you're going).
+  const shown = from ?? to;
+
+  // Once From and To are both set: the fastest route (Dijkstra), shown in the panel
+  // and drawn on the map. undefined = no trip yet, null = still finding it.
+  const [fastest, setFastest] = useState(undefined);
+  useEffect(() => {
+    if (!from || !to) {
+      setFastest(undefined);
+      return;
+    }
+    let active = true;
+    setFastest(null);
+    getFastestRoute(from.id, to.id)
+      .then((data) => active && setFastest(data))
+      .catch(() => active && setFastest(undefined)); // the live trip options still show
+    return () => {
+      active = false;
+    };
+  }, [from, to]);
 
   // Keep track of who is logged in.
   useEffect(() => (auth ? onAuthStateChanged(auth, setUser) : undefined), []);
@@ -75,54 +100,39 @@ export default function App() {
           Big screen: a big map on the left that stays in place, and a panel on the right that scrolls. */}
       <main className="mx-auto grid max-w-screen-2xl gap-4 p-4 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div className="h-[70vh] min-h-[420px] lg:sticky lg:top-4 lg:h-[calc(100vh-6rem)]">
-          <SubwayMap selectedStation={station} onSelectStation={setStation} myLocation={myLocation} theme={theme} />
+          <SubwayMap
+            selectedStation={shown}
+            onSelectStation={pickFromMap}
+            myLocation={myLocation}
+            journey={fastest?.found ? fastest.legs : null}
+            theme={theme}
+          />
         </div>
 
-        {/* The side panel shows only what you need right now:
-            nothing picked -> two big buttons; a station picked -> its trains;
-            planning -> the trip. Saved stuff and line status stay folded away at the bottom. */}
+        {/* The side panel: plan a trip at the top. As soon as From is picked, its trains
+            show below; with To too, the trips show. Saved and status stay folded away. */}
         <div className="space-y-4">
-          <StationSearch onSelect={setStation} myLocation={myLocation} routeColors={routeColors} />
+          <TripPlanner
+            from={from}
+            to={to}
+            onFromChange={setFrom}
+            onToChange={setTo}
+            routeColors={routeColors}
+            isSavedTrip={isSavedTrip}
+            onToggleTrip={toggleTrip}
+            myLocation={myLocation}
+            statusFor={statusFor}
+            alertColors={alertColors}
+          />
 
-          {station && (
+          {fastest !== undefined && <FastestRoute route={fastest} />}
+
+          {shown && (
             <ArrivalCards
-              key={station.id} // a new card for each station, so the "picked" glow plays again
-              station={station}
-              isFavorite={isFavorite(station)}
-              onToggleFavorite={() => toggleFavorite(station)}
-              onDirections={() => openTrip({ to: station })}
-              onClose={() => setStation(null)}
-              statusFor={statusFor}
-              alertColors={alertColors}
-            />
-          )}
-
-          {/* Just opened the site: the two main things you can do. */}
-          {!station && !tripOpen && (myLocation.status === "off" || myLocation.status === "error") && (
-            <div className="grid grid-cols-2 gap-3">
-              <button
-                onClick={myLocation.start}
-                className="flex flex-col items-center gap-2 rounded-2xl bg-white p-5 font-semibold shadow-sm hover:shadow-md"
-              >
-                <LocateFixed size={26} /> Near me
-              </button>
-              <button
-                onClick={() => openTrip()}
-                className="flex flex-col items-center gap-2 rounded-2xl bg-white p-5 font-semibold shadow-sm hover:shadow-md"
-              >
-                <Route size={26} /> Plan a trip
-              </button>
-            </div>
-          )}
-
-          {tripOpen && (
-            <TripPlanner
-              routeColors={routeColors}
-              isSavedTrip={isSavedTrip}
-              onToggleTrip={toggleTrip}
-              tripToOpen={tripToOpen}
-              myLocation={myLocation}
-              onClose={() => setTripOpen(false)}
+              key={shown.id} // a new card for each station, so the "picked" glow plays again
+              station={shown}
+              isFavorite={isFavorite(shown)}
+              onToggleFavorite={() => toggleFavorite(shown)}
               statusFor={statusFor}
               alertColors={alertColors}
             />
@@ -131,10 +141,13 @@ export default function App() {
           <Collapsible title="Saved" icon={<Sparkle size={18} />}>
             <Favorites
               favorites={favorites}
-              selectedStation={station}
-              onSelect={setStation}
+              selectedStation={from}
+              onSelect={setFrom}
               trips={trips}
-              onOpenTrip={openTrip}
+              onOpenTrip={(trip) => {
+                setFrom(trip.from);
+                setTo(trip.to);
+              }}
               onRemoveTrip={(trip) => toggleTrip(trip.from, trip.to)}
               routeColors={routeColors}
             />
@@ -145,7 +158,7 @@ export default function App() {
           </Collapsible>
 
           <Collapsible title="Weather" icon={<CloudSun size={18} />}>
-            <WeatherCard station={station} bare />
+            <WeatherCard station={shown} bare />
           </Collapsible>
         </div>
       </main>

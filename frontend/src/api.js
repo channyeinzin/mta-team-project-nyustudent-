@@ -27,6 +27,10 @@ export const getNearbyStations = (lat, lon) =>
 export const planTrip = (fromId, toId) =>
   getJson(`/api/trip?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
 
+// The fastest route with any number of transfers (Dijkstra's algorithm on the backend).
+export const getFastestRoute = (fromId, toId) =>
+  getJson(`/api/route?from=${encodeURIComponent(fromId)}&to=${encodeURIComponent(toId)}`);
+
 // FR-04/FR-05: subway vs taxi vs walking for the same journey.
 export const compareCommute = (fromId, toId) =>
   getJson(

@@ -132,7 +132,7 @@ function stationRadius(zoom) {
   return 2;
 }
 
-export default function SubwayMap({ selectedStation, onSelectStation, myLocation, theme = "light" }) {
+export default function SubwayMap({ selectedStation, onSelectStation, myLocation, journey, theme = "light" }) {
   const mapDiv = useRef(null);         // the <div> the map is drawn into
   const map = useRef(null);            // the Leaflet map object
   const tiles = useRef(null);          // the background map, so dark mode can restyle it
@@ -175,7 +175,8 @@ export default function SubwayMap({ selectedStation, onSelectStation, myLocation
     const trainLayer = L.layerGroup();
     const highlightLayer = L.layerGroup().addTo(m); // the highlighted line, drawn above the others
     const myLocationLayer = L.layerGroup().addTo(m); // my location, its accuracy circle and the closest station
-    layers.current = { stationLayer, highlightLayer, myLocationLayer };
+    const journeyLayer = L.layerGroup().addTo(m); // the fastest route between From and To
+    layers.current = { stationLayer, highlightLayer, myLocationLayer, journeyLayer };
 
     // Click empty map: stop highlighting.
     m.on("click", () => setSelectedLine(null));
@@ -478,6 +479,27 @@ export default function SubwayMap({ selectedStation, onSelectStation, myLocation
     if (closest) map.current.flyToBounds([here, [closest.lat, closest.lon]], { padding: [80, 80], maxZoom: 17 });
     else map.current.flyTo(here, 16);
   }
+
+  // The fastest route (Dijkstra): each ride in its line's color with a white
+  // outline, walks as dashed lines, then zoom to fit the whole trip.
+  useEffect(() => {
+    const layer = layers.current.journeyLayer;
+    if (!layer) return;
+    layer.clearLayers();
+    if (!journey) return;
+
+    for (const leg of journey) {
+      if (leg.points.length < 2) continue;
+      if (leg.kind === "ride") {
+        L.polyline(leg.points, { color: "#fff", weight: 12, opacity: 1, lineCap: "round", interactive: false }).addTo(layer);
+        L.polyline(leg.points, { color: leg.color, weight: 7, opacity: 1, lineCap: "round", interactive: false }).addTo(layer);
+      } else {
+        L.polyline(leg.points, { color: "#6b7280", weight: 4, dashArray: "2 8", lineCap: "round", interactive: false }).addTo(layer);
+      }
+    }
+    const all = journey.flatMap((leg) => leg.points);
+    if (all.length > 1) map.current.flyToBounds(all, { padding: [60, 60], duration: 0.8 });
+  }, [journey]);
 
   // Full screen: the Escape key closes it.
   useEffect(() => {

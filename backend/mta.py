@@ -338,6 +338,11 @@ def _live_trips():
     return trips
 
 
+def live_trips():
+    """Every running train (see _live_trips); used to build the Dijkstra graph."""
+    return _live_trips()
+
+
 def _walkable(station_id, transfers):
     """Stations you can walk to from here (including here), with the walk time.
     For example, Times Sq 1/2/3 ("127") connects to Times Sq N/Q/R/W ("R16")."""
