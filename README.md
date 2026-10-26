@@ -30,6 +30,8 @@ MTA live feeds ──► Flask backend (+ SQLite stations) ──► React websi
 - **Train arrivals**: the next trains at any station, in minutes
 - **Station search**: by name, or find the closest stations with "near me"
 - **Trip planner**: pick a start and destination (or use your current location) and get the next trains, with up to one transfer
+- **Compare your options**: the same trip by subway, taxi and walking, side by side — soonest marked, with the taxi fare shown as an estimate range, not a quote
+- **Weather**: current conditions near your selected station, with cautions like "walking surfaces may be slippery" when relevant
 - **Favorites**: log in to save the stations you use most
 
 ## Built with
@@ -83,7 +85,7 @@ npm run dev                       # start the website
 
 ### Step 4: Open it
 
-Go to **http://localhost:5173** in your browser. The map, status, arrivals, search and trip planner all work right away.
+Go to **http://localhost:5173** in your browser. The map, status, arrivals, search, trip planner and weather all work right away. "Compare your options" shows the subway trip; see below to turn on its taxi and walking cards too.
 
 **Next time**, you only need `source venv/bin/activate` and `python app.py` in terminal 1, and `npm run dev` in terminal 2.
 
@@ -102,6 +104,13 @@ Everything except login and favorites works without this step.
 3. Go to **Project settings → Your apps → Add app → Web** and copy the config values
 4. Copy `frontend/.env.example` to `frontend/.env` and paste the values in
 5. Restart `npm run dev`
+
+### Optional: turn on taxi fares and walking times
+
+Without this, "Compare your options" still shows the subway trip; the taxi and walking cards say they're unavailable.
+
+1. Get a free API key at https://openrouteservice.org/dev/#/signup
+2. Set it before starting the backend: `export ORS_API_KEY=your_key_here` (terminal 1, before `python app.py`)
 
 ### Run the tests
 
@@ -139,6 +148,9 @@ backend/
   mta.py              Person 1    downloads and reads the MTA real-time feeds
   database.py         Person 2    SQLite tables and queries
   import_data.py      Person 2    loads MTA station and route data into SQLite
+  weather.py          Person 4    FR-06: current weather and travel cautions
+  taxi.py             Person 4    taxi fare estimate scenarios (not quotes)
+  routing.py          Person 4    walking/driving routes via openrouteservice
   tests/test_api.py   Person 5    backend tests
 
 frontend/src/
@@ -149,7 +161,10 @@ frontend/src/
   components/ArrivalCards.jsx      Person 3    train arrival cards
   components/RouteBullet.jsx       Person 3    colored line symbols
   components/StationSearch.jsx     Person 3/4  search bar and "near me"
+  components/StationInput.jsx      Person 4    shared station autocomplete (trip planner + compare)
   components/TripPlanner.jsx       Person 4    trip planner
+  components/CommuteCompare.jsx    Person 4    subway vs taxi vs walking, side by side
+  components/WeatherCard.jsx       Person 4    current conditions and cautions
   components/Login.jsx             Person 4    sign up, log in, log out
   components/Favorites.jsx         Person 4    favorite stations list
   useFavorites.js                  Person 4    saving favorite stations
@@ -168,6 +183,8 @@ All endpoints return JSON. Errors look like `{ "error": "message" }` with status
 | `GET /api/stations?q=union` | Stations whose name matches |
 | `GET /api/stations/nearby?lat=40.73&lon=-73.99` | The 5 closest stations |
 | `GET /api/trip?from=L08&to=A27` | Next trips between two stations, soonest arrival first |
+| `GET /api/commute/compare?from=L08&to=A27` | The same trip by subway, taxi and walking, with fares and ETAs |
+| `GET /api/weather?lat=40.73&lon=-73.99` | Current conditions and travel cautions near a point |
 | `GET /api/subway/routes` | Track of every line, as GeoJSON (cached 24h) |
 | `GET /api/subway/stops` | Every station, as GeoJSON (cached 24h) |
 | `GET /api/subway/trains?routes=1,2,3` | Live trains as GeoJSON; leave out `routes` for all lines |
@@ -209,6 +226,34 @@ All endpoints return JSON. Errors look like `{ "error": "message" }` with status
 ```json
 { "stations": [{ "id": "L03", "name": "14 St-Union Sq", "lat": 40.7348, "lon": -73.9907, "routes": ["L"] }] }
 ```
+
+`GET /api/weather?lat=40.7348&lon=-73.9907`
+```json
+{
+  "available": true,
+  "source": "Open-Meteo",
+  "source_age_seconds": 873,
+  "weather": {
+    "temperature_c": 19.2, "condition": "Clear sky",
+    "rain_mm": 0.0, "snowfall_cm": 0.0, "wind_speed_kmh": 3.7
+  },
+  "cautions": []
+}
+```
+If the provider is down or stale, this still returns `200`/`503` JSON with `"available": false` and a `"reason"` — never a numeric travel delay guessed from weather.
+
+`GET /api/commute/compare?from=L03&to=L01` (trimmed; `walking` and `driving` have the same `total_eta_min`/`available` shape as `taxi`)
+```json
+{
+  "subway": { "available": true, "options": [ /* same shape as /api/trip, plus fare_usd */ ] },
+  "taxi": {
+    "available": true, "total_eta_min": 17.0,
+    "fare": { "min_usd": 10.10, "max_usd": 10.80, "estimate_only": true, "range_is_guaranteed": false }
+  },
+  "walking": { "available": true, "total_eta_min": 28.0 }
+}
+```
+`taxi.fare` is an illustrative meter estimate (see `taxi.py`), not a quote — tolls, tips and verified congestion charges are excluded and listed in `excluded_charges`. `taxi`/`walking`/`driving` need `ORS_API_KEY` (see "Optional: turn on taxi fares and walking times"); without it they return `"available": false` with a `"reason"`.
 </details>
 
 ## How it works
@@ -222,9 +267,16 @@ All endpoints return JSON. Errors look like `{ "error": "message" }` with status
 
 It handles at most one transfer, and only sees trains already in the live feed (about the next 30 to 60 minutes).
 
+**Compare your options:** runs the trip planner above for the subway leg, then asks openrouteservice for a walking and a driving route between the same two stations. The taxi card turns the driving route's distance and time into two fare scenarios (metered the whole way vs. 30% slow traffic) using NYC TLC's published rates, and takes the wider of the two as the range — it's a planning estimate, not a quote, so tolls, tips and unverified congestion charges are always excluded rather than guessed at.
+
+**Weather:** fetched fresh from Open-Meteo for the point you're looking at (a selected station, or Midtown by default) and never turned into a numeric delay — only qualitative cautions ("walking surfaces may be slippery") when the conditions call for one.
+
 ## Data sources
 
 - Real-time arrivals: MTA GTFS-RT feeds (`api-endpoint.mta.info`)
 - Service alerts: MTA subway alerts feed
 - Stations, routes and track shapes: MTA static GTFS (`gtfs_subway.zip`)
 - Map background: OpenStreetMap tiles
+- Weather: Open-Meteo
+- Walking/driving routes: openrouteservice
+- Taxi fare rates: NYC Taxi & Limousine Commission (TLC) published rules
