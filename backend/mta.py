@@ -26,9 +26,9 @@ FEEDS = {
     f"{MTA_BASE}/nyct%2Fgtfs-si": ["SI"],
 }
 
-# The feeds only update about every 30 seconds, so we keep each download for
-# 30 seconds instead of asking the MTA again for every request.
-CACHE_SECONDS = 30
+# We keep each download for 10 seconds instead of asking the MTA again for every
+# request. 10 seconds matches how often the map asks for new train positions.
+CACHE_SECONDS = 10
 MAX_TRAIN_FEED_AGE_SECONDS = 180  # Treat old or undated predictions as unavailable.
 _cache = {}  # url -> (time downloaded, data)
 

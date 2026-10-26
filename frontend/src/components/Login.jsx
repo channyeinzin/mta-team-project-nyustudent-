@@ -24,9 +24,8 @@ export default function Login({ user }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
 
-  if (!auth) {
-    return <span className="text-xs text-gray-400">Login not set up</span>;
-  }
+  // No Firebase settings in frontend/.env: show nothing. The site works the same, just without accounts.
+  if (!auth) return null;
 
   if (user) {
     return (

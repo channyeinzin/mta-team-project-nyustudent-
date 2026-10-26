@@ -1,9 +1,11 @@
-// Person 4: trip planner — pick a start and a destination (or use 📍 for the
+// Person 4: trip planner — pick a start and a destination (or use the locate button for the
 // station nearest you) and see the next trains that get you there.
 
-import { useEffect, useState } from "react";
-import { getNearbyStations, planTrip, searchStations } from "../api.js";
+import { useEffect, useRef, useState } from "react";
+import { planTrip, searchStations } from "../api.js";
+import { ArrowUpDown, Footprints, LocateFixed, Sparkle, X } from "lucide-react";
 import RouteBullet from "./RouteBullet.jsx";
+import LineStatus from "./LineStatus.jsx";
 
 // "1792875280" (Unix seconds) -> "5:42 PM"
 const clock = (seconds) =>
@@ -38,7 +40,7 @@ function StationInput({ label, station, onChange, routeColors, children }) {
       <div className="flex items-center gap-2">
         <span className="w-10 text-sm font-semibold text-gray-500">{label}</span>
         {station ? (
-          // A station is picked: show it, with an ✕ to clear it.
+          // A station is picked: show it, with an X to clear it.
           <div className="flex flex-1 items-center gap-2 rounded-xl border border-gray-300 px-3 py-2">
             <span className="flex-1 truncate">{station.name}</span>
             <span className="flex gap-1">
@@ -47,7 +49,7 @@ function StationInput({ label, station, onChange, routeColors, children }) {
               ))}
             </span>
             <button onClick={() => onChange(null)} className="text-gray-400 hover:text-gray-800" title="Clear">
-              ✕
+              <X size={16} />
             </button>
           </div>
         ) : (
@@ -86,7 +88,7 @@ function StationInput({ label, station, onChange, routeColors, children }) {
 }
 
 // One way to get there: one train, or two trains with a transfer.
-function TripOption({ option, from, to }) {
+function TripOption({ option, from, to, statusFor, alertColors }) {
   const firstLeg = option.legs[0];
   const lastLeg = option.legs[option.legs.length - 1];
 
@@ -106,13 +108,13 @@ function TripOption({ option, from, to }) {
 
       <ol className="space-y-2">
         {/* Boarding at a connected station, e.g. you picked Port Authority but board at Times Sq */}
-        {firstLeg.from !== from && <li className="ml-11 text-xs text-gray-500">🚶 Walk to {firstLeg.from}</li>}
+        {firstLeg.from !== from && <li className="ml-11 flex items-center gap-1 text-xs text-gray-500"><Footprints size={12} /> Walk to {firstLeg.from}</li>}
 
         {option.legs.map((leg, i) => (
           <li key={i}>
             {/* Changing trains at a connected station, e.g. 6 Av (L) -> 14 St (1/2/3) */}
             {i > 0 && option.legs[i - 1].to !== leg.from && (
-              <p className="mb-2 ml-11 text-xs text-gray-500">🚶 Walk to {leg.from}</p>
+              <p className="mb-2 ml-11 flex items-center gap-1 text-xs text-gray-500"><Footprints size={12} /> Walk to {leg.from}</p>
             )}
             <div className="flex items-center gap-3">
               <RouteBullet route={leg.route} color={leg.color} textColor={leg.text_color} />
@@ -123,22 +125,42 @@ function TripOption({ option, from, to }) {
                 <p className="text-xs text-gray-500">
                   {clock(leg.depart_time)} – {clock(leg.arrive_time)} · toward {leg.toward}
                 </p>
+                <LineStatus line={statusFor(leg.route)} alertColors={alertColors} />
               </div>
             </div>
           </li>
         ))}
 
-        {lastLeg.to !== to && <li className="ml-11 text-xs text-gray-500">🚶 Walk to {to}</li>}
+        {lastLeg.to !== to && <li className="ml-11 flex items-center gap-1 text-xs text-gray-500"><Footprints size={12} /> Walk to {to}</li>}
       </ol>
     </div>
   );
 }
 
-export default function TripPlanner({ routeColors }) {
-  const [from, setFrom] = useState(null);
-  const [to, setTo] = useState(null);
+export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tripToOpen, myLocation, onClose, statusFor, alertColors }) {
+  const nearest = myLocation.nearby[0] ?? null; // the station closest to you (when location is on)
+  const [from, setFrom] = useState(() => tripToOpen?.from ?? nearest);
+  const [to, setTo] = useState(() => tripToOpen?.to ?? null);
   const [result, setResult] = useState(null);
   const [message, setMessage] = useState("");
+  const box = useRef(null);
+
+  // Opened (or re-opened from "Directions" or a saved trip): fill in the stations,
+  // starting from the station closest to you if no start was given, then scroll
+  // here and put the cursor in the first empty box so you can just type.
+  useEffect(() => {
+    if (tripToOpen) {
+      setFrom(tripToOpen.from ?? nearest);
+      setTo(tripToOpen.to ?? null);
+    }
+    box.current.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    setTimeout(() => box.current?.querySelector("input")?.focus(), 300);
+  }, [tripToOpen]); // only when a new trip is opened
+
+  // Location just found your closest station: use it as the start, if you haven't picked one.
+  useEffect(() => {
+    if (nearest) setFrom((current) => current ?? nearest);
+  }, [nearest?.id]); // only when the closest station changes
 
   // Once both stations are picked, find trips — and refresh every 30 seconds.
   useEffect(() => {
@@ -159,19 +181,10 @@ export default function TripPlanner({ routeColors }) {
     return () => clearInterval(timer);
   }, [from, to]);
 
-  // 📍: start from the station closest to you.
+  // Locate button: start from the station closest to you (turns location on if needed).
   function startFromMyLocation() {
-    setMessage("Finding your location…");
-    navigator.geolocation.getCurrentPosition(
-      (position) =>
-        getNearbyStations(position.coords.latitude, position.coords.longitude)
-          .then((data) => {
-            setFrom(data.stations[0]);
-            setMessage("");
-          })
-          .catch((err) => setMessage(err.message)),
-      () => setMessage("Location not available. Type your start station instead.")
-    );
+    if (nearest) setFrom(nearest);
+    else myLocation.start(); // the effect above fills it in once the closest station is found
   }
 
   function swap() {
@@ -180,8 +193,13 @@ export default function TripPlanner({ routeColors }) {
   }
 
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-bold">🧭 Plan a trip</h2>
+    <section ref={box} className="picked rounded-2xl bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center gap-2">
+        <h2 className="flex-1 text-lg font-bold">Plan a trip</h2>
+        <button onClick={onClose} title="Close" className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
+          <X size={18} />
+        </button>
+      </div>
 
       <div className="space-y-2">
         <StationInput label="From" station={from} onChange={setFrom} routeColors={routeColors}>
@@ -190,7 +208,7 @@ export default function TripPlanner({ routeColors }) {
             title="Start from the station nearest me"
             className="rounded-xl border border-gray-300 px-3 py-2 hover:bg-gray-100"
           >
-            📍
+            <LocateFixed size={18} />
           </button>
         </StationInput>
         <StationInput label="To" station={to} onChange={setTo} routeColors={routeColors}>
@@ -199,18 +217,36 @@ export default function TripPlanner({ routeColors }) {
             title="Swap start and destination"
             className="rounded-xl border border-gray-300 px-3 py-2 hover:bg-gray-100"
           >
-            ⇅
+            <ArrowUpDown size={18} />
           </button>
         </StationInput>
       </div>
+
+      {/* Save this start + destination to use again later, e.g. tomorrow's commute. */}
+      {from && to && onToggleTrip && (
+        <button
+          onClick={() => onToggleTrip(from, to)}
+          className="mt-3 flex items-center gap-1.5 rounded-xl border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100"
+        >
+          {isSavedTrip(from, to) ? (
+            <>
+              <Sparkle size={14} className="fill-current" /> Saved trip
+            </>
+          ) : (
+            <>
+              <Sparkle size={14} /> Save trip
+            </>
+          )}
+        </button>
+      )}
 
       {message && <p className="mt-3 text-sm text-gray-500">{message}</p>}
 
       {result && (
         <div className="mt-4 space-y-2">
           {result.walk && (
-            <p className="text-sm text-gray-600">
-              These stations are connected — just walk, no train needed. 🚶
+            <p className="flex items-center gap-1.5 text-sm text-gray-600">
+              <Footprints size={14} /> These stations are connected — just walk, no train needed.
             </p>
           )}
           {!result.walk && result.options.length === 0 && (
@@ -219,7 +255,14 @@ export default function TripPlanner({ routeColors }) {
             </p>
           )}
           {result.options.map((option, i) => (
-            <TripOption key={i} option={option} from={result.from.name} to={result.to.name} />
+            <TripOption
+              key={i}
+              option={option}
+              from={result.from.name}
+              to={result.to.name}
+              statusFor={statusFor}
+              alertColors={alertColors}
+            />
           ))}
         </div>
       )}

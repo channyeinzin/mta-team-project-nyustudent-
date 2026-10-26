@@ -3,27 +3,34 @@
 
 import { useEffect, useState } from "react";
 import { getArrivals } from "../api.js";
+import { Navigation, Sparkle, X } from "lucide-react";
 import RouteBullet from "./RouteBullet.jsx";
+import LineStatus from "./LineStatus.jsx";
 
-function ArrivalCard({ train }) {
+// The backend says "Northbound"/"Southbound"; riders say "Uptown"/"Downtown".
+const directionLabel = { Northbound: "Uptown", Southbound: "Downtown" };
+
+// One train: its line, where it's going, when it arrives, and how its line is running.
+function ArrivalCard({ train, line, alertColors }) {
   return (
-    <div className="flex items-center gap-3 rounded-xl border border-gray-200 p-3">
-      <RouteBullet route={train.route} color={train.color} textColor={train.text_color} size="lg" />
-      <div className="min-w-0 flex-1">
-        <p className="truncate font-medium">{train.destination}</p>
-        <p className="text-xs text-gray-500">{train.direction}</p>
+    <div className="rounded-xl border border-gray-200 p-3">
+      <div className="flex items-center gap-3">
+        <RouteBullet route={train.route} color={train.color} textColor={train.text_color} size="lg" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate font-medium">{train.destination}</p>
+          <LineStatus line={line} alertColors={alertColors} />
+        </div>
+        <p className="text-xl font-bold whitespace-nowrap">
+          {train.minutes_away === 0 ? "Now" : `${train.minutes_away} min`}
+        </p>
       </div>
-      <p className="text-xl font-bold whitespace-nowrap">
-        {train.minutes_away === 0 ? "Now" : `${train.minutes_away} min`}
-      </p>
     </div>
   );
 }
 
-export default function ArrivalCards({ station, isFavorite, onToggleFavorite }) {
+export default function ArrivalCards({ station, isFavorite, onToggleFavorite, onDirections, onClose, statusFor, alertColors }) {
   const [arrivals, setArrivals] = useState(null);
   const [error, setError] = useState(null);
-  const [updatedAt, setUpdatedAt] = useState(null);
 
   useEffect(() => {
     setArrivals(null);
@@ -31,7 +38,6 @@ export default function ArrivalCards({ station, isFavorite, onToggleFavorite }) 
       getArrivals(station.id)
         .then((data) => {
           setArrivals(data.arrivals);
-          setUpdatedAt(new Date(data.updated_at * 1000));
           setError(null);
         })
         .catch((err) => setError(err.message));
@@ -41,24 +47,34 @@ export default function ArrivalCards({ station, isFavorite, onToggleFavorite }) 
     return () => clearInterval(timer);
   }, [station.id]);
 
-  // Two columns: one per direction.
+  // One list per direction.
   const directions = ["Northbound", "Southbound"];
 
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm">
-      <div className="mb-4 flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-xl font-bold">{station.name}</h2>
-          {updatedAt && <p className="text-xs text-gray-500">Updated {updatedAt.toLocaleTimeString()}</p>}
-        </div>
-        {onToggleFavorite && (
-          <button
-            onClick={onToggleFavorite}
-            className="rounded-xl border border-gray-300 px-3 py-1.5 text-sm hover:bg-gray-100"
-          >
-            {isFavorite ? "★ Saved" : "☆ Save"}
-          </button>
-        )}
+    // A quick teal glow ("picked") when you choose a station, so you notice it changed.
+    <section className="picked rounded-2xl bg-white p-4 shadow-sm">
+      <div className="mb-4 flex items-start gap-2">
+        <h2 className="flex-1 text-xl font-bold">{station.name}</h2>
+        <button onClick={onClose} title="Close" className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
+          <X size={18} />
+        </button>
+      </div>
+
+      {/* The two things you'd do next: go there, or keep it. */}
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        <button
+          onClick={onDirections}
+          className="flex items-center justify-center gap-1.5 rounded-xl bg-gray-900 py-2 text-sm font-medium text-white hover:bg-gray-700"
+        >
+          <Navigation size={14} /> Directions
+        </button>
+        <button
+          onClick={onToggleFavorite}
+          className="flex items-center justify-center gap-1.5 rounded-xl border border-gray-300 py-2 text-sm font-medium hover:bg-gray-100"
+        >
+          <Sparkle size={14} className={isFavorite ? "fill-current" : ""} />
+          {isFavorite ? "Saved" : "Save"}
+        </button>
       </div>
 
       {error && <p className="text-sm text-red-600">{error}</p>}
@@ -66,15 +82,20 @@ export default function ArrivalCards({ station, isFavorite, onToggleFavorite }) 
       {arrivals?.length === 0 && <p className="text-sm text-gray-500">No trains coming right now.</p>}
 
       {arrivals?.length > 0 && (
-        <div className="grid gap-4 md:grid-cols-2">
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-1">{/* one column in the narrow side panel */}
           {directions.map((direction) => (
             <div key={direction} className="space-y-2">
-              <h3 className="text-sm font-semibold text-gray-600">{direction}</h3>
+              <h3 className="text-sm font-semibold text-gray-500">{directionLabel[direction]}</h3>
               {arrivals
                 .filter((t) => t.direction === direction)
-                .slice(0, 5)
+                .slice(0, 3)
                 .map((train, i) => (
-                  <ArrivalCard key={i} train={train} />
+                  <ArrivalCard
+                    key={`${train.route}-${train.destination}-${i}`} // stays the same when times update, so "Why?" stays open
+                    train={train}
+                    line={statusFor(train.route)}
+                    alertColors={alertColors}
+                  />
                 ))}
             </div>
           ))}

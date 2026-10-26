@@ -5,8 +5,8 @@ import { useEffect, useState } from "react";
 import { getStatus } from "../api.js";
 import RouteBullet from "./RouteBullet.jsx";
 
-// Tailwind classes for each status.
-const STATUS_STYLES = {
+// Tailwind classes for each status. (Also used by the station card, ArrivalCards.jsx.)
+export const STATUS_STYLES = {
   "Good Service": "bg-green-100 text-green-800",
   "Planned Work": "bg-yellow-100 text-yellow-800",
   "Service Change": "bg-orange-100 text-orange-800",
@@ -16,7 +16,7 @@ const STATUS_STYLES = {
 
 // MTA alert text writes lines like "[N][R] trains are delayed".
 // This swaps each [N] for a little colored bullet.
-function AlertText({ text, colors }) {
+export function AlertText({ text, colors }) {
   const parts = text.split(/\[(\w+)\]/); // "[N] trains" -> ["", "N", " trains"]
   return parts.map((part, i) =>
     i % 2 === 1 ? (
@@ -27,7 +27,8 @@ function AlertText({ text, colors }) {
   );
 }
 
-export default function StatusDashboard() {
+// `bare`: leave out the box and title, when another section (App.jsx) already has them.
+export default function StatusDashboard({ bare = false }) {
   const [lines, setLines] = useState([]);
   const [error, setError] = useState(null);
   const [openRoute, setOpenRoute] = useState(null); // the line whose alerts are showing
@@ -63,8 +64,8 @@ export default function StatusDashboard() {
   const open = lines.find((l) => l.route === openRoute);
 
   return (
-    <section className="rounded-2xl bg-white p-4 shadow-sm">
-      <h2 className="mb-3 text-lg font-bold">Service Status</h2>
+    <section className={bare ? "" : "rounded-2xl bg-white p-4 shadow-sm"}>
+      {!bare && <h2 className="mb-3 text-lg font-bold">Service Status</h2>}
 
       {error && <p className="text-sm text-red-600">{error}</p>}
       {!error && lines.length === 0 && <p className="text-sm text-gray-500">Loading…</p>}
