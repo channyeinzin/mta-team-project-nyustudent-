@@ -129,13 +129,6 @@ pytest
 
 ## Demo Output
 
-Search typed the way people say it, from `GET /api/stations?q=25th street`:
-
-```
-25 St          Brooklyn   D/N/R/W
-Beach 25 St    Queens     A
-```
-
 Stations near Union Square, from `GET /api/stations/nearby?lat=40.7359&lon=-73.9911`:
 
 ```
@@ -157,22 +150,6 @@ N   Southbound  to Coney Island-Stillwell Av  27 min
 
 On the website, Northbound and Southbound are shown as **Uptown** and **Downtown**.
 
-Trip planner, 14 St-Union Sq (L) to Times Sq-42 St (1/2/3): the next trains, plus
-
-```
-Or walk: 1.85 mi · about 37 min (estimate)
-```
-
-## What we changed after user testing
-
-We had a classmate use the app and turned each piece of feedback into a fix:
-
-| Feedback | What we changed |
-|---|---|
-| Typing "25th" found nothing; only "25 St" worked | Search now understands "25th", "street", "avenue", "square" and spelled-out numbers, and ranks exact matches first |
-| Stations with the same name were hard to tell apart | Every station shows its borough (from the MTA's station list on NY Open Data) |
-| "Compare" was a separate box that made you retype both stations | Walking distance and time now appear right inside the trip planner |
-
 ## Troubleshooting
 
 | Problem | Fix |
@@ -182,7 +159,6 @@ We had a classmate use the app and turned each piece of feedback into a fix:
 | `cd: no such file or directory` | You're already in that folder. Run `pwd` to check. |
 | **Near me** does nothing | Allow location access in your browser (works on `localhost` and HTTPS). |
 | Something broke after `git pull` | Run `npm install` again in `frontend`. |
-| The map's station labels don't show a borough | Your browser cached the old station list. Press Cmd+Shift+R (Windows: Ctrl+Shift+R). |
 
 ## API
 
