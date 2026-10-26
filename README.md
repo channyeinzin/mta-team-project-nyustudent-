@@ -23,7 +23,7 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 ## Features
 
 - **Near me:** one tap shows your location, a walking line to your closest station, and the 5 stations nearest you
-- **Station search:** type it how you say it ("25th street", "5th avenue", "union square"), or tap a station on the map. Every station shows its borough, so the five "86 St" stations are easy to tell apart.
+- **Station search:** type it how you say it ("25th street", "5th avenue", "union square"), or tap a station on the map. Every station shows its borough, so the six "86 St" stations are easy to tell apart.
 - **Live arrivals:** the next Uptown and Downtown trains at any station, in minutes
 - **Line status:** a colored dot under every train (Good Service, Delays, Suspended…), with a **Why?** button that shows the MTA's alert
 - **Trip planner:** type a destination and get the next trains, direct or with one transfer. "From" fills in your closest station automatically, and you also see how far the trip is on foot (miles and minutes).
@@ -40,13 +40,14 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 │                                                              │
 │   [MTA live feeds]              [MTA static GTFS]            │
 │   trains · alerts               stations · lines · tracks    │
+│        ↓                        + NY Open Data boroughs      │
 │        ↓                               ↓                     │
 │        ↓                        [import_data.py]             │
 │        ↓                               ↓                     │
 │        ↓                         [subway.db SQLite]          │
 │        ↓                               ↓                     │
 │   [Flask backend :5001]  ←─────────────┘                     │
-│   (mta.py: downloads feeds every 10 s, finds trips)          │
+│   (downloads feeds every 10 s, plans trips, walk estimates)  │
 │        ↓                                                     │
 │   JSON API  /api/arrivals  /api/status  /api/trip  ...       │
 │        ↓                                                     │
@@ -55,7 +56,7 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 │   │ Live map (Leaflet)     │   │ Side panel               │  │
 │   │  - moving trains       │   │  - Near me / search      │  │
 │   │  - line highlight      │   │  - arrivals + status     │  │
-│   │  - your location       │   │  - trip planner, saved   │  │
+│   │  - your location       │   │  - trip + walk, saved    │  │
 │   └────────────────────────┘   └──────────────────────────┘  │
 │                                                              │
 └──────────────────────────────────────────────────────────────┘
@@ -77,7 +78,7 @@ source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 
 # Build the station database (one time, about 1 minute)
-python import_data.py
+python import_data.py             # also refreshes station_boroughs.json
 
 # Website dependencies
 cd ../frontend
@@ -128,6 +129,13 @@ pytest
 
 ## Demo Output
 
+Search typed the way people say it, from `GET /api/stations?q=25th street`:
+
+```
+25 St          Brooklyn   D/N/R/W
+Beach 25 St    Queens     A
+```
+
 Stations near Union Square, from `GET /api/stations/nearby?lat=40.7359&lon=-73.9911`:
 
 ```
@@ -149,6 +157,22 @@ N   Southbound  to Coney Island-Stillwell Av  27 min
 
 On the website, Northbound and Southbound are shown as **Uptown** and **Downtown**.
 
+Trip planner, 14 St-Union Sq (L) to Times Sq-42 St (1/2/3): the next trains, plus
+
+```
+Or walk: 1.85 mi · about 37 min (estimate)
+```
+
+## What we changed after user testing
+
+We had a classmate use the app and turned each piece of feedback into a fix:
+
+| Feedback | What we changed |
+|---|---|
+| Typing "25th" found nothing; only "25 St" worked | Search now understands "25th", "street", "avenue", "square" and spelled-out numbers, and ranks exact matches first |
+| Stations with the same name were hard to tell apart | Every station shows its borough (from the MTA's station list on NY Open Data) |
+| "Compare" was a separate box that made you retype both stations | Walking distance and time now appear right inside the trip planner |
+
 ## Troubleshooting
 
 | Problem | Fix |
@@ -158,12 +182,13 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | `cd: no such file or directory` | You're already in that folder. Run `pwd` to check. |
 | **Near me** does nothing | Allow location access in your browser (works on `localhost` and HTTPS). |
 | Something broke after `git pull` | Run `npm install` again in `frontend`. |
+| The map's station labels don't show a borough | Your browser cached the old station list. Press Cmd+Shift+R (Windows: Ctrl+Shift+R). |
 
 ## API
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/stations?q=union` | Stations whose name matches |
+| `GET /api/stations?q=25th street` | Stations matching what you type, with their borough |
 | `GET /api/stations/nearby?lat=..&lon=..` | The 5 closest stations |
 | `GET /api/arrivals?station=L03` | Next trains at a station |
 | `GET /api/status` | How every line is running, with alerts |
@@ -171,7 +196,7 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/subway/routes` · `/stops` · `/trains` | Map data as GeoJSON |
 | `GET /api/weather?lat=..&lon=..` | Current weather and travel cautions |
-| `GET /api/commute/compare?from=..&to=..` | The same trip by subway and walking (also a taxi estimate when `ORS_API_KEY` is set) |
+| `GET /api/commute/compare?from=..&to=..` | The same trip by subway and walking, with miles (also a taxi estimate when `ORS_API_KEY` is set) |
 
 ## Future Work
 
