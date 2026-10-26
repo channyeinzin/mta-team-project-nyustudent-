@@ -328,7 +328,7 @@ export default function SubwayMap({ selectedStation, onSelectStation, myLocation
           fillOpacity: 1,
           lines: station.routes.map(lineOf), // used to fade stations off the highlighted line
         })
-          .bindTooltip(station.name)
+          .bindTooltip(station.borough ? `${station.name} · ${station.borough}` : station.name)
           .on("click", () => onSelect.current(station))
           .addTo(stationLayer);
       }

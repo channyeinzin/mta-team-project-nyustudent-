@@ -54,7 +54,10 @@ export default function ArrivalCards({ station, isFavorite, onToggleFavorite, on
     // A quick teal glow ("picked") when you choose a station, so you notice it changed.
     <section className="picked rounded-2xl bg-white p-4 shadow-sm">
       <div className="mb-4 flex items-start gap-2">
-        <h2 className="flex-1 text-xl font-bold">{station.name}</h2>
+        <div className="flex-1">
+          <h2 className="text-xl font-bold">{station.name}</h2>
+          {station.borough && <p className="text-sm text-gray-500">{station.borough}</p>}
+        </div>
         <button onClick={onClose} title="Close" className="rounded-full p-1 text-gray-400 hover:bg-gray-100 hover:text-gray-900">
           <X size={18} />
         </button>

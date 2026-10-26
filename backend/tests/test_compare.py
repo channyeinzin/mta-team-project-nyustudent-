@@ -19,8 +19,11 @@ def test_routing_failure():
 
     data = response.get_json()
 
-    assert data["walking"]["available"] is False
-    assert data["walking"]["total_eta_min"] is None
+    # No route: walking falls back to a straight-line estimate.
+    assert data["walking"]["available"] is True
+    assert data["walking"]["estimate_only"] is True
+    assert data["walking"]["distance_miles"] > 0
+    assert data["walking"]["total_eta_min"] == round(data["walking"]["distance_miles"] * 20, 1)
 
     assert data["driving"]["available"] is False
 
@@ -76,6 +79,7 @@ def test_mta_failure_keeps_walking_and_taxi_available():
     # Walking still works.
     assert data["walking"]["available"] is True
     assert data["walking"]["total_eta_min"] == 56.4
+    assert data["walking"]["distance_miles"] == 2.92
 
     # Driving and taxi still work.
     assert data["driving"]["available"] is True
@@ -133,8 +137,8 @@ def test_alert_failure_keeps_subway_available():
     assert leg["alerts"] == []
     assert leg["color"] == "#D82233"
 
-    # Walking and taxi are unavailable independently.
-    assert data["walking"]["available"] is False
+    # Taxi is unavailable on its own; walking falls back to an estimate.
+    assert data["walking"]["estimate_only"] is True
     assert data["taxi"]["available"] is False
 
 

@@ -13,9 +13,19 @@ functions at the bottom of this file.
 import json
 import math
 import os
+import re
 import sqlite3
 
 DB_PATH = os.path.join(os.path.dirname(__file__), "subway.db")
+
+# {station id: "Manhattan"} — saved by import_data.py and kept in git, so a new
+# borough list doesn't mean rebuilding the database. Missing file = no boroughs.
+BOROUGHS_PATH = os.path.join(os.path.dirname(__file__), "station_boroughs.json")
+try:
+    with open(BOROUGHS_PATH) as _file:
+        BOROUGHS = json.load(_file)
+except (OSError, ValueError):
+    BOROUGHS = {}
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS routes (
@@ -104,14 +114,40 @@ def get_station_names():
     return {row["id"]: row["name"] for row in rows}
 
 
+# How people type a word -> how MTA station names write it ("25th street" -> "25 st").
+WORD_FORMS = {
+    "street": "st", "str": "st", "avenue": "av", "ave": "av", "square": "sq",
+    "boulevard": "blvd", "parkway": "pkwy", "place": "pl", "road": "rd",
+    "center": "ctr", "centre": "ctr", "plaza": "plz", "heights": "hts",
+    "first": "1", "second": "2", "third": "3", "fourth": "4", "fifth": "5",
+    "sixth": "6", "seventh": "7", "eighth": "8", "ninth": "9", "tenth": "10",
+}
+
+
+def search_words(text):
+    """'25th Street-Penn' -> ['25', 'st', 'penn']"""
+    words = re.findall(r"[a-z0-9]+", text.lower())
+    words = [re.sub(r"^(\d+)(st|nd|rd|th)$", r"\1", word) for word in words]  # 25th -> 25
+    return [WORD_FORMS.get(word, word) for word in words]
+
+
 def search_stations(query, limit=10):
-    """Stations whose name contains the search text (case-insensitive)."""
-    with connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM stations WHERE name LIKE ? ORDER BY name LIMIT ?",
-            (f"%{query}%", limit),
-        ).fetchall()
-    return [station_to_dict(row) for row in rows]
+    """Stations matching every word you typed, so "25th street", "25 St" and
+    "25th st" all find 25 St. A word can be the start of a name word ("uni" finds
+    Union Sq); stations where your words match whole words come first, so "25"
+    puts 25 St before 125 St."""
+    query_words = search_words(query)
+    if not query_words:
+        return []
+
+    matches = []
+    for station in get_all_stations():
+        name_words = search_words(station["name"])
+        if all(any(word.startswith(q) for word in name_words) for q in query_words):
+            exact = sum(q in name_words for q in query_words)
+            matches.append((-exact, station["name"], station))
+    matches.sort(key=lambda match: match[:2])
+    return [station for _, _, station in matches[:limit]]
 
 
 def nearby_stations(lat, lon, limit=5):
@@ -129,6 +165,7 @@ def nearby_stations(lat, lon, limit=5):
 def station_to_dict(row):
     station = dict(row)
     station["routes"] = station["routes"].split()  # "1 2 3" -> ["1", "2", "3"]
+    station["borough"] = BOROUGHS.get(station["id"])  # "Manhattan", or None if unknown
     return station
 
 

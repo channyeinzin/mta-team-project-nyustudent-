@@ -32,7 +32,7 @@ function useStoredList(key) {
 }
 
 // Only keep what we need to show a station again later.
-const short = (station) => ({ id: station.id, name: station.name, routes: station.routes });
+const short = (station) => ({ id: station.id, name: station.name, borough: station.borough, routes: station.routes });
 
 export default function useFavorites(user) {
   const owner = user ? user.uid : "guest";

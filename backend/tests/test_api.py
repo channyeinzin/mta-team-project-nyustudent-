@@ -206,3 +206,10 @@ def test_trip_endpoint_errors(client):
     assert test_client.get("/api/trip?from=L03").status_code == 400
     assert test_client.get("/api/trip?from=L03&to=L03").status_code == 400
     assert test_client.get("/api/trip?from=L03&to=NOPE").status_code == 404
+
+
+def test_search_words_match_how_people_type():
+    import database
+    assert database.search_words("25th Street") == ["25", "st"]
+    assert database.search_words("Fifth Ave") == ["5", "av"]
+    assert database.search_words("Times Sq-42 St") == ["times", "sq", "42", "st"]

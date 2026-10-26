@@ -254,6 +254,9 @@ def compare_commute():
         walking["total_eta_min"] = round(
             walking["duration_seconds"] / 60, 1
         )
+        walking["distance_miles"] = round(
+            walking["distance_m"] / routing.METERS_PER_MILE, 2
+        )
 
     except (
         requests.RequestException,
@@ -262,13 +265,12 @@ def compare_commute():
         TypeError,
         ValueError
     ) as error:
-        app.logger.warning("Walking route unavailable: %s", error)
+        # No route from openrouteservice: estimate the walk from the
+        # straight-line distance instead, and say it's an estimate.
+        app.logger.warning("Walking route unavailable, estimating: %s", error)
 
-        walking = {
-            "available": False,
-            "total_eta_min": None,
-            "reason": "Walking route temporarily unavailable",
-        }
+        walking = routing.estimate_walk(start, end)
+        walking["available"] = True
 
     # --- Driving route ---
     try:
@@ -425,7 +427,7 @@ def subway_routes():
 @app.get("/api/subway/stops")
 def subway_stops():
     features = [
-        point(s["lon"], s["lat"], {"id": s["id"], "name": s["name"], "routes": s["routes"]})
+        point(s["lon"], s["lat"], {"id": s["id"], "name": s["name"], "borough": s["borough"], "routes": s["routes"]})
         for s in database.get_all_stations()
     ]
     response = jsonify({"type": "FeatureCollection", "features": features})

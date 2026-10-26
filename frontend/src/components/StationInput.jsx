@@ -32,17 +32,21 @@ export default function StationInput({ label, station, onChange, routeColors, ch
   return (
     <div className="relative">
       <div className="flex items-center gap-2">
-        <span className="w-10 text-sm font-semibold text-gray-500">{label}</span>
+        <span className="w-10 shrink-0 text-sm font-semibold text-gray-500">{label}</span>
         {station ? (
-          // A station is picked: show it, with an X to clear it.
-          <div className="flex flex-1 items-center gap-2 rounded-xl border border-gray-300 px-3 py-2">
-            <span className="flex-1 truncate">{station.name}</span>
-            <span className="flex gap-1">
+          // A station is picked: show it, with an X to clear it. min-w-0 lets a long
+          // name shrink (with "…") instead of pushing the buttons out of the box.
+          <div className="flex min-w-0 flex-1 items-center gap-2 rounded-xl border border-gray-300 px-3 py-1.5">
+            <span className="min-w-0 flex-1">
+              <span className="block truncate">{station.name}</span>
+              {station.borough && <span className="block truncate text-xs text-gray-500">{station.borough}</span>}
+            </span>
+            <span className="flex max-w-[45%] shrink-0 flex-wrap justify-end gap-1">
               {station.routes.map((r) => (
                 <RouteBullet key={r} route={r} size="sm" {...routeColors[r]} />
               ))}
             </span>
-            <button onClick={() => onChange(null)} className="text-gray-400 hover:text-gray-800" title="Clear">
+            <button onClick={() => onChange(null)} className="shrink-0 text-gray-400 hover:text-gray-800" title="Clear">
               <X size={16} />
             </button>
           </div>
@@ -52,10 +56,10 @@ export default function StationInput({ label, station, onChange, routeColors, ch
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Station name"
-            className="flex-1 rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-gray-800"
+            className="min-w-0 flex-1 rounded-xl border border-gray-300 px-3 py-2 outline-none focus:border-gray-800"
           />
         )}
-        {children}
+        <div className="flex shrink-0">{children}</div>
       </div>
 
       {results.length > 0 && (
@@ -66,7 +70,10 @@ export default function StationInput({ label, station, onChange, routeColors, ch
                 onClick={() => choose(s)}
                 className="flex w-full items-center justify-between gap-2 px-3 py-2 text-left hover:bg-gray-50"
               >
-                <span>{s.name}</span>
+                <span>
+                  {s.name}
+                  {s.borough && <span className="ml-2 text-xs text-gray-500">{s.borough}</span>}
+                </span>
                 <span className="flex gap-1">
                   {s.routes.map((r) => (
                     <RouteBullet key={r} route={r} size="sm" {...routeColors[r]} />

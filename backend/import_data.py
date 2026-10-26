@@ -23,6 +23,10 @@ import database
 
 GTFS_URL = "https://rrgtfsfeeds.s3.amazonaws.com/gtfs_subway.zip"
 
+# The MTA's list of subway stations on NY Open Data, which includes each one's borough.
+BOROUGHS_URL = "https://data.ny.gov/api/views/39hk-dx4f/rows.csv?accessType=DOWNLOAD"
+BOROUGH_NAMES = {"M": "Manhattan", "Bk": "Brooklyn", "Bx": "Bronx", "Q": "Queens", "SI": "Staten Island"}
+
 
 def main():
     print("Downloading MTA subway data...")
@@ -128,6 +132,21 @@ def main():
     conn.commit()
     conn.close()
     print(f"Done! Saved {count} stations to {database.DB_PATH}")
+
+    save_boroughs()
+
+
+def save_boroughs():
+    """GTFS has no borough, so we take it from the MTA's station list on NY Open
+    Data and save {station id: borough} to station_boroughs.json."""
+    print("Downloading station boroughs...")
+    response = requests.get(BOROUGHS_URL, timeout=60)
+    response.raise_for_status()
+    rows = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
+    boroughs = {row["GTFS Stop ID"]: BOROUGH_NAMES[row["Borough"]] for row in rows}
+    with open(database.BOROUGHS_PATH, "w") as file:
+        json.dump(boroughs, file, indent=0, sort_keys=True)
+    print(f"Saved the borough of {len(boroughs)} stations to {database.BOROUGHS_PATH}")
 
 
 if __name__ == "__main__":

@@ -46,6 +46,7 @@ export default function StationSearch({ onSelect, myLocation, routeColors }) {
       >
         <span>
           {station.name}
+          {station.borough && <span className="ml-2 text-xs text-gray-500">{station.borough}</span>}
           {station.distance_miles !== undefined && (
             <span className="ml-2 text-xs text-gray-500">
               {station.distance_miles} mi · ~{Math.round(station.distance_miles * 20)} min walk

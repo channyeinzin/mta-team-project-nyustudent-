@@ -1,9 +1,9 @@
-// FR-04/FR-05: the same journey priced and timed across modes — subway, taxi
-// and walking — so you can see what you trade for the fare.
+// FR-04/FR-05: the same journey timed and priced by subway and on foot,
+// so you can see what you trade for the fare.
 //
-// Every number here comes from the backend. Taxi fares are illustrative meter
-// scenarios, not quotes, and the backend says so; we keep that caveat visible
-// rather than rounding it away.
+// Every number here comes from the backend. Walking uses the real route when
+// openrouteservice is set up, else an estimate the backend labels as one.
+// (The backend also estimates taxi fares; the site doesn't show them.)
 
 import { useEffect, useState } from "react";
 import { compareCommute, getNearbyStations } from "../api.js";
@@ -117,14 +117,12 @@ export default function CommuteCompare({ routeColors, bare = false }) {
 
   // The soonest subway option, if the feed was fresh enough to trust.
   const bestSubway = result?.subway?.available ? result.subway.options[0] : null;
-  const taxi = result?.taxi;
+  // The backend also estimates a taxi, but we only show subway and walking.
   const walking = result?.walking;
-  const fare = taxi?.fare;
 
   // Which available mode gets there first?
   const etas = [
     bestSubway && { mode: "subway", eta: bestSubway.total_eta_min },
-    taxi?.available && { mode: "taxi", eta: taxi.total_eta_min },
     walking?.available && { mode: "walking", eta: walking.total_eta_min },
   ].filter(Boolean);
   const fastest = etas.length > 1 ? etas.reduce((a, b) => (a.eta <= b.eta ? a : b)).mode : null;
@@ -138,7 +136,7 @@ export default function CommuteCompare({ routeColors, bare = false }) {
     <section className={bare ? "" : "rounded-2xl bg-white p-4 shadow-sm"}>
       {!bare && <h2 className="mb-1 text-lg font-bold">⚖️ Compare your options</h2>}
       <p className="mb-3 text-xs text-gray-500">
-        Subway, taxi and walking for the same trip — time against cost.
+        Subway and walking for the same trip — time against cost.
       </p>
 
       <div className="space-y-2">
@@ -166,7 +164,7 @@ export default function CommuteCompare({ routeColors, bare = false }) {
 
       {result && (
         <div className="mt-4 space-y-3">
-          <div className="grid gap-2 sm:grid-cols-3">
+          <div className="grid gap-2 sm:grid-cols-2">
             <ModeCard
               icon="🚇"
               name="Subway"
@@ -202,20 +200,6 @@ export default function CommuteCompare({ routeColors, bare = false }) {
             </ModeCard>
 
             <ModeCard
-              icon="🚕"
-              name="Taxi"
-              fastest={fastest === "taxi"}
-              unavailable={taxi.available ? null : taxi.reason || "Taxi estimate unavailable."}
-              eta={taxi.available && mins(taxi.total_eta_min)}
-              cost={fare && `${money(fare.min_usd)}–${money(fare.max_usd)}`}
-              costNote={fare && "Illustrative meter scenarios, not a quote"}
-              detail={
-                taxi.available &&
-                `Includes ${taxi.pickup_assumption_min} min assumed pickup wait`
-              }
-            />
-
-            <ModeCard
               icon="🚶"
               name="Walking"
               fastest={fastest === "walking"}
@@ -224,6 +208,10 @@ export default function CommuteCompare({ routeColors, bare = false }) {
               }
               eta={walking.available && mins(walking.total_eta_min)}
               cost={walking.available && "Free"}
+              detail={
+                walking.available &&
+                `${walking.distance_miles} mi${walking.estimate_only ? " · estimated from the straight-line distance" : ""}`
+              }
             />
           </div>
 
@@ -245,36 +233,10 @@ export default function CommuteCompare({ routeColors, bare = false }) {
             </p>
           )}
 
-          {/* The honest small print, folded away until asked for. */}
-          {fare && (
-            <details className="rounded-xl bg-gray-50 p-3 text-xs text-gray-600">
-              <summary className="cursor-pointer font-semibold text-gray-700">
-                How the taxi fare is estimated
-              </summary>
-              <p className="mt-2">
-                {fare.source}
-                {fare.range_is_guaranteed === false && " — the range is not a guaranteed bound."}
-              </p>
-              <p className="mt-2 font-semibold">Not included:</p>
-              <ul className="list-disc pl-4">
-                {fare.excluded_charges.map((charge) => (
-                  <li key={charge}>{charge}</li>
-                ))}
-              </ul>
-              <p className="mt-2 font-semibold">Assumptions:</p>
-              <ul className="list-disc pl-4">
-                {fare.assumptions.map((assumption) => (
-                  <li key={assumption}>{assumption}</li>
-                ))}
-              </ul>
-            </details>
-          )}
-
           <p className="text-[11px] text-gray-400">
             Subway times: {result.subway.source}
             {result.subway.source_age_seconds !== null &&
               ` · feed ${result.subway.source_age_seconds}s old`}
-            {taxi.available && ` · Taxi: ${taxi.source}`}
           </p>
         </div>
       )}

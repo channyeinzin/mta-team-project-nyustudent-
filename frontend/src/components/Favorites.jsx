@@ -33,7 +33,10 @@ export default function Favorites({ favorites, selectedStation, onSelect, trips,
                     : "hover:bg-gray-50"
                 }`}
               >
-                <span>{station.name}</span>
+                <span>
+                  {station.name}
+                  {station.borough && <span className="ml-2 text-xs text-gray-500">{station.borough}</span>}
+                </span>
                 <Bullets routes={station.routes} routeColors={routeColors} />
               </button>
             </li>

@@ -2,7 +2,7 @@
 // station nearest you) and see the next trains that get you there.
 
 import { useEffect, useRef, useState } from "react";
-import { planTrip } from "../api.js";
+import { compareCommute, planTrip } from "../api.js";
 import { ArrowUpDown, Footprints, LocateFixed, Sparkle, X } from "lucide-react";
 import RouteBullet from "./RouteBullet.jsx";
 import LineStatus from "./LineStatus.jsx";
@@ -67,6 +67,7 @@ export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tr
   const [from, setFrom] = useState(() => tripToOpen?.from ?? nearest);
   const [to, setTo] = useState(() => tripToOpen?.to ?? null);
   const [result, setResult] = useState(null);
+  const [walking, setWalking] = useState(null); // { distance_miles, total_eta_min, estimate_only }
   const [message, setMessage] = useState("");
   const box = useRef(null);
 
@@ -104,6 +105,19 @@ export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tr
     load();
     const timer = setInterval(load, 30000);
     return () => clearInterval(timer);
+  }, [from, to]);
+
+  // The same trip on foot (distance and time), once per pair of stations.
+  useEffect(() => {
+    setWalking(null);
+    if (!from || !to) return;
+    let active = true;
+    compareCommute(from.id, to.id)
+      .then((data) => active && data.walking?.available && setWalking(data.walking))
+      .catch(() => {}); // no walking line if it fails; the trains still show
+    return () => {
+      active = false;
+    };
   }, [from, to]);
 
   // Locate button: start from the station closest to you (turns location on if needed).
@@ -190,6 +204,15 @@ export default function TripPlanner({ routeColors, isSavedTrip, onToggleTrip, tr
             />
           ))}
         </div>
+      )}
+
+      {/* Or skip the train: how far it is on foot. */}
+      {walking && !result?.walk && (
+        <p className="mt-3 flex items-center gap-1.5 rounded-xl bg-gray-50 px-3 py-2 text-sm text-gray-600">
+          <Footprints size={14} className="shrink-0" />
+          Or walk: {walking.distance_miles} mi · about {Math.round(walking.total_eta_min)} min
+          {walking.estimate_only && <span className="text-xs text-gray-400">(estimate)</span>}
+        </p>
       )}
     </section>
   );

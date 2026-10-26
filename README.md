@@ -11,26 +11,26 @@ A real-time NYC subway web app that finds your closest station, shows when your 
 | Python + Flask | Backend API that serves clean subway data |
 | MTA GTFS-Realtime feeds | Live train positions, arrivals and service alerts |
 | MTA static GTFS + SQLite | Database of every station, line and track |
+| NY Open Data (MTA Subway Stations) | The borough of every station |
 | React + Vite | The website |
 | Leaflet + OpenStreetMap | The interactive live map |
 | Tailwind CSS + Lucide | Styling, dark mode and icons |
 | Open-Meteo | Current weather near a station |
-| openrouteservice + NYC TLC rates | Walking and driving routes, taxi fare estimates |
+| openrouteservice | Real walking routes (optional; otherwise estimated from distance) |
 | Browser local storage | Saved stations and trips (no account needed) |
 | pytest | Backend tests |
 
 ## Features
 
 - **Near me:** one tap shows your location, a walking line to your closest station, and the 5 stations nearest you
-- **Station search:** find any station by name, or tap one on the map
+- **Station search:** type it how you say it ("25th street", "5th avenue", "union square"), or tap a station on the map. Every station shows its borough, so the five "86 St" stations are easy to tell apart.
 - **Live arrivals:** the next Uptown and Downtown trains at any station, in minutes
 - **Line status:** a colored dot under every train (Good Service, Delays, Suspended…), with a **Why?** button that shows the MTA's alert
-- **Trip planner:** type a destination and get the next trains, direct or with one transfer. "From" fills in your closest station automatically.
+- **Trip planner:** type a destination and get the next trains, direct or with one transfer. "From" fills in your closest station automatically, and you also see how far the trip is on foot (miles and minutes).
 - **Saved:** keep favorite stations and trips (like your daily commute) and open them with one tap
 - **Live map:** every train updates every 10 seconds; moving trains glide to their next station and glow in their line color
 - **Line highlight:** tap a line to light it up and fade everything else
 - **Weather:** current conditions near your station, with cautions like "walking surfaces may be slippery"
-- **Compare your options:** the same trip by subway, taxi and walking, side by side (taxi fare is an estimate, not a quote)
 - **Dark mode and full-screen map**
 
 ## Architecture
@@ -107,7 +107,7 @@ npm run dev
 
 Go to **http://localhost:5173**, then try **Near me** or **Plan a trip**.
 
-**Optional - turn on taxi and walking comparison:**
+**Optional - use real walking routes:**
 
 Get a free key at https://openrouteservice.org/dev/#/signup, then set it in terminal 1 before starting the backend:
 
@@ -116,7 +116,7 @@ export ORS_API_KEY=your_key_here
 python app.py
 ```
 
-Without it, "Compare your options" still shows the subway trip.
+Without it, walking is estimated from the straight-line distance between stations (× 1.3 for the street grid, at 20 minutes a mile).
 
 **Run the tests (optional):**
 
@@ -171,7 +171,7 @@ On the website, Northbound and Southbound are shown as **Uptown** and **Downtown
 | `GET /api/routes` | Every line with its official colors |
 | `GET /api/subway/routes` · `/stops` · `/trains` | Map data as GeoJSON |
 | `GET /api/weather?lat=..&lon=..` | Current weather and travel cautions |
-| `GET /api/commute/compare?from=..&to=..` | The same trip by subway, taxi and walking (taxi/walking need `ORS_API_KEY`) |
+| `GET /api/commute/compare?from=..&to=..` | The same trip by subway and walking (also a taxi estimate when `ORS_API_KEY` is set) |
 
 ## Future Work
 
